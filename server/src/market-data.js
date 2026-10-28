@@ -30,25 +30,24 @@ async function fetchTelemetryBatch(mints) {
 /** Normalise a telemetry.io response item into the Quote shape the extension expects. */
 function normalizeTelemetryItem(item, address) {
   if (!item) return null;
-  // telemetry.io response shape is not fixed; read common candidates defensively.
-  const priceUsd =
-    Number(item.priceUsd ?? item.price ?? item.lastPrice ?? item.marketPrice ?? 0);
+  // telemetry.io response fields (verified against live API):
+  // mint, symbol, name, price_usd, market_cap_usd, liquidity_usd, image, decimals, ...
+  const priceUsd = Number(item.price_usd ?? item.priceUsd ?? 0);
   if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
 
-  const symbol =
-    item.symbol || item.baseToken?.symbol || item.mint || address.slice(0, 6).toUpperCase();
+  const symbol = item.symbol || address.slice(0, 6).toUpperCase();
 
   return {
-    assetId: item.pairAddress || item.assetId || `solana:${address}`,
-    chainId: item.chainId || item.chain || 'solana',
-    address,
+    assetId: item.mint || `solana:${address}`,
+    chainId: 'solana',
+    address: item.mint || address,
     symbol,
-    name: item.name || item.baseToken?.name || symbol,
-    imageUrl: item.imageUrl || item.baseToken?.imageUrl || null,
+    name: item.name || symbol,
+    imageUrl: item.image || null,
     priceUsd,
-    liquidityUsd: item.liquidity?.usd ?? item.liquidityUsd ?? null,
-    marketCapUsd: item.marketCap ?? item.marketCapUsd ?? null,
-    change24hPct: item.priceChange?.h24 ?? item.change24hPct ?? null,
+    liquidityUsd: Number(item.liquidity_usd ?? 0) || null,
+    marketCapUsd: Number(item.market_cap_usd ?? 0) || null,
+    change24hPct: null, // telemetry batch endpoint doesn't include 24h change directly
     source: 'telemetry',
     fetchedAt: new Date().toISOString(),
   };
