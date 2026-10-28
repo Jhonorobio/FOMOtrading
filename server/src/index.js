@@ -14,7 +14,7 @@ import {
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
   recordConsent, deleteAccountAndData,
 } from './trading.js';
-import { fetchQuote, fetchPriceHistory, TELEMETRY_TOKEN } from './market-data.js';
+import { fetchQuote, fetchPriceHistory, TELEMETRY_TOKEN, fetchTokenLogo } from './market-data.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -125,8 +125,8 @@ app.get('/api/token-logo', async (req, res, next) => {
   try {
     const { chain, address } = req.query;
     if (!chain || !address) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'chain and address are required.' } });
-    // We don't store logos yet; the extension falls back to a letter avatar.
-    res.json({ dataUrl: null });
+    const dataUrl = await fetchTokenLogo(address);
+    res.json({ dataUrl: dataUrl || null });
   } catch (err) {
     next(err);
   }

@@ -8,6 +8,9 @@ const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 const TELEMETRY_BASE = 'https://app.telemetry.io/data/market_data_batch';
 export const TELEMETRY_TOKEN = process.env.TELEMETRY_BEARER_TOKEN || '';
 
+/** In-memory cache of token logos as data: URLs (chain:address -> dataUrl). */
+const logoCache = new Map();
+
 /* ---------------------------------------------------------------- */
 /* Telemetry.io                                                     */
 /* ---------------------------------------------------------------- */
@@ -162,4 +165,39 @@ export async function fetchQuotesBatch(addresses) {
     }
   }
   return map;
+}
+
+/**
+ * Fetch a token logo from telemetry.io and return it as a data: URL.
+ * The extension runs on fomo.family whose CSP blocks external images but
+ * allows data: images, so we download and re-encode the logo server-side.
+ * @param {string} address  token mint address
+ * @returns {Promise<string|null>} data: URL or null
+ */
+export async function fetchTokenLogo(address) {
+  if (!TELEMETRY_TOKEN) return null;
+  const key = address;
+  if (logoCache.has(key)) return logoCache.get(key);
+
+  try {
+    const batch = await fetchTelemetryBatch([address]);
+    const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
+    const item = Array.isArray(items)
+      ? items.find((i) => String(i.mint ?? i.address ?? '').toLowerCase() === address.toLowerCase())
+      : items;
+    const imageUrl = item?.image || item?.imageUrl;
+    if (!imageUrl) return null;
+
+    const res = await fetch(imageUrl);
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get('content-type') || 'image/png';
+    const base64 = buffer.toString('base64');
+    const dataUrl = `data:${contentType};base64,${base64}`;
+
+    logoCache.set(key, dataUrl);
+    return dataUrl;
+  } catch {
+    return null;
+  }
 }
