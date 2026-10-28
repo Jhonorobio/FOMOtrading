@@ -1,0 +1,56 @@
+{
+   "action": {
+      "default_icon": {
+         "16": "icons/icon-16.png",
+         "32": "icons/icon-32.png"
+      },
+      "default_popup": "src/popup/popup.html",
+      "default_title": "Paper Terminal"
+   },
+   "background": {
+      "service_worker": "src/background/service-worker.js",
+      "type": "module"
+   },
+   "commands": {
+      "open-side-panel": {
+         "description": "Open the Paper Terminal side panel",
+         "suggested_key": {
+            "default": "Alt+Shift+P"
+         }
+      },
+      "toggle-paper-mode": {
+         "description": "Turn the Paper Terminal on FOMO on or off",
+         "suggested_key": {
+            "default": "Alt+Shift+O"
+         }
+      }
+   },
+   "content_scripts": [ {
+      "js": [ "src/content/loader.js" ],
+      "matches": [ "https://fomo.family/*" ],
+      "run_at": "document_idle"
+   } ],
+   "description": "Practice trading with virtual money at live prices. Simulated fills, full history, exportable style. Works with fomo.family.",
+   "host_permissions": [ "https://fomo.family/*", "http://localhost:3001/*", "https://paper-terminal-production.up.railway.app/*" ],
+   "icons": {
+      "128": "icons/icon-128.png",
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvuPT0l2Wufaati+BKREq8nLO5723tptwUR3ibSthhq50J1gZUpzi1XTbGFWvV+BL/bTXLFdytKhMV2PeRuJj/8YJ/UKoVRz2GWTSnvXD79CNFWKnahrRHEXi6NSCRGxV2sY16u5H6UdecGMwh6C2B5IH261KTSB01f7AhgYE9RPuw4v/YSoo4ibPzWH1U35KmwMHl3i0TXiwrOfJYXDH+Cuy3CBZmW8m93i0AYcTpWqZ9ksliXjVt3u+GvC0Btia8YoXXnNrkNf3fIhOjJDtZy/g3bPTK1XPwhvF4uOyD5+AHZ2fklD5KemKde8X+c1hzkDmSaLMvB5LuktgM3GdWQIDAQAB",
+   "manifest_version": 3,
+   "minimum_chrome_version": "116",
+   "name": "Paper Terminal — practice crypto trading",
+   "permissions": [ "storage", "sidePanel" ],
+   "short_name": "Paper Terminal",
+   "side_panel": {
+      "default_path": "src/sidepanel/sidepanel.html"
+   },
+   "update_url": "https://clients2.google.com/service/update2/crx",
+   "version": "1.0.1",
+   "web_accessible_resources": [ {
+      "matches": [ "https://fomo.family/*" ],
+      "resources": [ "src/content/*", "src/components/*", "src/integrations/target-terminal/*", "src/services/*", "src/storage/*", "src/config.js", "src/docs/*" ]
+   } ]
+}

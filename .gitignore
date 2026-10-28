@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment
+.env
+
+# Server data / database
+server/data/*.db
+server/data/*.db-wal
+server/data/*.db-shm
+
+# Logs
+*.log
+server/*.log
+server/server.out.log
+server/server.err.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build / dist
+dist/
+build/

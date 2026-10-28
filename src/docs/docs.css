@@ -1,0 +1,81 @@
+/* Policies page. Same palette as the panel, laid out for reading rather than trading. */
+:root {
+  color-scheme: dark;
+  --bg: #060510;
+  --bg-soft: #12111a;
+  --line: rgba(203, 208, 235, 0.12);
+  --line-strong: rgba(203, 208, 235, 0.2);
+  --text: #f7f7f7;
+  --muted: #9899a3;
+  --paper: #a896ff;
+  --green: #21c95e;
+}
+
+@font-face { font-family: 'Geist'; src: url('../../fonts/Geist-Regular.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'Geist'; src: url('../../fonts/Geist-Medium.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+@font-face { font-family: 'Geist'; src: url('../../fonts/Geist-SemiBold.woff2') format('woff2'); font-weight: 600; font-display: swap; }
+@font-face { font-family: 'Geist'; src: url('../../fonts/Geist-Bold.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+  font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  padding: 0 24px 80px;
+}
+a { color: var(--paper); }
+a:hover { color: #c7bbff; }
+:focus-visible { outline: 2px solid var(--paper); outline-offset: 3px; border-radius: 4px; }
+
+.skip { position: absolute; left: -9999px; }
+.skip:focus { left: 24px; top: 12px; z-index: 5; background: var(--bg-soft); padding: 8px 12px; border-radius: 8px; }
+
+.masthead {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  max-width: 1040px; margin: 0 auto; padding: 32px 0 20px; border-bottom: 1px solid var(--line);
+}
+.masthead img { border-radius: 10px; }
+.eyebrow { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--paper); }
+.masthead h1 { margin: 2px 0 0; font-size: 26px; line-height: 1.2; letter-spacing: -0.02em; text-wrap: balance; }
+.stamp { margin: 0 0 0 auto; font-size: 13px; color: var(--muted); }
+
+.layout { max-width: 1040px; margin: 0 auto; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 40px; }
+.toc {
+  position: sticky; top: 24px; align-self: start; display: flex; flex-direction: column; gap: 2px;
+  padding: 20px 0; font-size: 14px;
+}
+.toc a { color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 8px; }
+.toc a:hover { color: var(--text); background: var(--bg-soft); }
+.toc a.current { color: var(--text); background: var(--bg-soft); box-shadow: inset 2px 0 0 var(--paper); }
+
+main { padding: 20px 0 0; max-width: 72ch; }
+section { scroll-margin-top: 24px; padding-bottom: 12px; }
+section + section { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--line); }
+h2 { font-size: 22px; letter-spacing: -0.02em; margin: 0 0 12px; text-wrap: balance; }
+h3 { font-size: 16px; margin: 24px 0 6px; text-wrap: balance; }
+p { margin: 0 0 12px; text-wrap: pretty; }
+ul { margin: 0 0 12px; padding-left: 20px; }
+li { margin-bottom: 6px; }
+code { font-family: ui-monospace, 'Cascadia Code', Consolas, monospace; font-size: 13px; background: var(--bg-soft); padding: 1px 6px; border-radius: 6px; }
+
+.callout {
+  padding: 14px 16px; border-radius: 12px; background: rgba(168, 150, 255, 0.1);
+  border: 1px solid rgba(168, 150, 255, 0.28);
+}
+.fine { font-size: 13px; color: var(--muted); }
+
+table { width: 100%; border-collapse: collapse; margin: 6px 0 16px; font-size: 14px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; }
+tbody tr:hover { background: rgba(203, 208, 235, 0.04); }
+
+@media (max-width: 860px) {
+  .layout { grid-template-columns: 1fr; gap: 0; }
+  .toc { position: static; flex-direction: row; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  .stamp { margin-left: 0; width: 100%; }
+}
+@media print {
+  body { background: #fff; color: #000; padding: 0; }
+  .toc, .skip { display: none; }
+  a { color: #000; }
+}

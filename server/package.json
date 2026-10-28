@@ -1,0 +1,20 @@
+{
+  "name": "paper-terminal-server",
+  "version": "1.0.0",
+  "description": "Self-hosted paper trading server for the Paper Terminal Chrome extension",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "sql.js": "^1.10.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

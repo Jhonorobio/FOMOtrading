@@ -1,0 +1,10 @@
+/* Popup sizing on top of the shared side panel stylesheet. */
+html, body { width: 380px; min-height: 0; }
+body { max-height: 600px; }
+.shell { min-height: 0; }
+.topbar { position: static; }
+.view { padding: 4px 12px 14px; gap: 10px; }
+.positions { padding: 12px 8px 6px; }
+.positions .pos-head { padding: 0 6px 6px; }
+.positions .pos-list { max-height: 248px; }
+.welcome .fine { font-size: 12px; margin: 0; }
