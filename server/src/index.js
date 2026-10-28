@@ -171,6 +171,17 @@ app.get('/api/asset-state', optionalSession, async (req, res, next) => {
       } else {
         account = { id: acct.id, cashBalance: acct.cashBalance, startingBalance: acct.startingBalance };
         position = getPosition(req.user.id, chain, address);
+        if (position) {
+          // Augment position with live price and P&L so the extension can render them.
+          position.currentPrice = quote.priceUsd;
+          position.marketCapUsd = quote.marketCapUsd;
+          position.symbol = quote.symbol || position.symbol;
+          position.unrealizedPnl = (quote.priceUsd - position.averageEntryPrice) * position.quantity;
+          position.unrealizedPnlPct = position.averageEntryPrice > 0
+            ? ((quote.priceUsd - position.averageEntryPrice) / position.averageEntryPrice) * 100
+            : 0;
+          position.marketValue = position.quantity * quote.priceUsd;
+        }
       }
     }
 
