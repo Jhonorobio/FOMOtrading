@@ -14,7 +14,7 @@ import {
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
   recordConsent, deleteAccountAndData,
 } from './trading.js';
-import { fetchQuote, fetchPriceHistory, TELEMETRY_TOKEN, fetchTokenLogo } from './market-data.js';
+import { fetchQuote, TELEMETRY_TOKEN, fetchTokenLogo } from './market-data.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -106,7 +106,7 @@ app.get('/api/config', (_req, res) => {
     minStartingBalance: MIN_STARTING_BALANCE,
     maxStartingBalance: MAX_STARTING_BALANCE,
     minimumAge: MINIMUM_AGE,
-    marketDataProvider: TELEMETRY_TOKEN ? 'telemetry' : 'dexscreener',
+    marketDataProvider: TELEMETRY_TOKEN ? 'telemetry' : 'none',
   });
 });
 
@@ -127,17 +127,6 @@ app.get('/api/token-logo', async (req, res, next) => {
     if (!chain || !address) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'chain and address are required.' } });
     const dataUrl = await fetchTokenLogo(address);
     res.json({ dataUrl: dataUrl || null });
-  } catch (err) {
-    next(err);
-  }
-});
-
-app.get('/api/price-history', async (req, res, next) => {
-  try {
-    const { chain, address, from, to } = req.query;
-    if (!chain || !address) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'chain and address are required.' } });
-    const history = await fetchPriceHistory(chain, address, from, to);
-    res.json(history);
   } catch (err) {
     next(err);
   }

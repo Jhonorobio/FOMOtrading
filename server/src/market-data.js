@@ -1,10 +1,8 @@
 /**
  * Market data client for the paper server.
- * Primary source: telemetry.io (live prices, batch-capable, requires Bearer token).
- * Fallback: DexScreener public API (no key required, slower updates).
- * No connection to FOMO's private trading endpoints.
+ * Primary and only source: telemetry.io (live prices, batch-capable, requires Bearer token).
+ * No DexScreener, no connection to FOMO's private trading endpoints.
  */
-const DEXSCREENER_BASE = 'https://api.dexscreener.com/latest/dex';
 const TELEMETRY_BASE = 'https://app.telemetry.io/data/market_data_batch';
 export const TELEMETRY_TOKEN = process.env.TELEMETRY_BEARER_TOKEN || '';
 
@@ -57,128 +55,53 @@ function normalizeTelemetryItem(item, address) {
 }
 
 /* ---------------------------------------------------------------- */
-/* DexScreener (fallback)                                           */
-/* ---------------------------------------------------------------- */
-
-const DEX_HEADERS = {
-  Accept: 'application/json',
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) PaperTerminal/1.0',
-};
-
-export async function fetchDexScreenerQuote(chainId, address) {
-  // DexScreener's current endpoint takes token address(es) without chainId in the URL.
-  const url = `${DEXSCREENER_BASE}/tokens/${encodeURIComponent(address)}`;
-  const res = await fetch(url, { headers: DEX_HEADERS });
-  if (!res.ok) {
-    if (res.status === 429) throw new Error('MARKET_DATA_RATE_LIMITED');
-    throw new Error(`MARKET_DATA_ERROR:${res.status}`);
-  }
-  const data = await res.json();
-  const pairs = data.pairs || [];
-  // Filter to the requested chain if possible, otherwise take the first.
-  const chainPairs = pairs.filter((p) => p.chainId === chainId);
-  const usable = chainPairs.length ? chainPairs : pairs;
-  if (!usable.length) throw new Error('ASSET_NOT_FOUND');
-  const pair = usable.reduce(
-    (best, p) => (p.liquidity?.usd ?? 0) > (best.liquidity?.usd ?? 0) ? p : best,
-    usable[0]
-  );
-
-  const priceUsd = Number(pair.priceUsd);
-  if (!Number.isFinite(priceUsd) || priceUsd <= 0) throw new Error('ASSET_NOT_FOUND');
-
-  return {
-    assetId: pair.pairAddress || `${chainId}:${address}`,
-    chainId: pair.chainId || chainId,
-    address,
-    symbol: pair.baseToken?.symbol || address.slice(0, 6).toUpperCase(),
-    name: pair.baseToken?.name || pair.baseToken?.symbol || pair.baseToken?.symbol,
-    imageUrl: pair.baseToken?.imageUrl || null,
-    priceUsd,
-    liquidityUsd: pair.liquidity?.usd ?? null,
-    marketCapUsd: pair.marketCap ?? null,
-    change24hPct: pair.priceChange?.h24 ?? null,
-    source: 'dexscreener',
-    fetchedAt: new Date().toISOString(),
-  };
-}
-
-export async function fetchPriceHistory(chainId, address, from, to) {
-  return { points: [], from: from || new Date().toISOString(), to: to || new Date().toISOString() };
-}
-
-/* ---------------------------------------------------------------- */
 /* Public API                                                       */
 /* ---------------------------------------------------------------- */
 
 /**
- * Fetch a quote for a token. Tries telemetry.io first (if configured),
- * falls back to DexScreener.
+ * Fetch a quote for a token. Only uses telemetry.io.
+ * Throws ASSET_NOT_FOUND if the token has no price on telemetry.io.
  */
 export async function fetchQuote(chainId, address) {
-  // Try telemetry.io batch with a single mint.
-  if (TELEMETRY_TOKEN) {
-    try {
-      const batch = await fetchTelemetryBatch([address]);
-      const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
-      const item = Array.isArray(items)
-        ? items.find((i) => String(i.mint ?? i.address ?? '').toLowerCase() === address.toLowerCase())
-        : items;
-      const q = normalizeTelemetryItem(item, address);
-      if (q) return q;
-      // telemetry returned empty for this mint; fall through to DexScreener.
-    } catch (err) {
-      console.warn('[market-data] telemetry failed for', address, '- falling back to dexscreener', err.message);
-    }
-  }
+  if (!TELEMETRY_TOKEN) throw new Error('MARKET_DATA_NOT_CONFIGURED');
+
   try {
-    return await fetchDexScreenerQuote(chainId, address);
-  } catch {
+    const batch = await fetchTelemetryBatch([address]);
+    const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
+    const item = Array.isArray(items)
+      ? items.find((i) => String(i.mint ?? i.address ?? '').toLowerCase() === address.toLowerCase())
+      : items;
+    const q = normalizeTelemetryItem(item, address);
+    if (q) return q;
     throw new Error('ASSET_NOT_FOUND');
+  } catch (err) {
+    if (err.message === 'ASSET_NOT_FOUND') throw err;
+    throw new Error(`MARKET_DATA_ERROR:${err.message}`);
   }
 }
 
 /**
  * Fetch quotes for multiple mints in one batch request (telemetry.io).
- * Returns a map of address -> Quote. Falls back to DexScreener per-mint on failure.
+ * Returns a map of address -> Quote.
  */
 export async function fetchQuotesBatch(addresses) {
   if (!addresses.length) return {};
 
-  if (TELEMETRY_TOKEN) {
-    try {
-      const batch = await fetchTelemetryBatch(addresses);
-      const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
-      const map = {};
-      for (const item of items) {
-        const addr = String(item.address ?? item.mint ?? '');
-        const q = normalizeTelemetryItem(item, addr);
-        if (q) map[addr] = q;
-      }
-      // Fill missing addresses with DexScreener fallback.
-      const missing = addresses.filter((a) => !map[a]);
-      for (const addr of missing) {
-        try {
-          map[addr] = await fetchDexScreenerQuote('solana', addr);
-        } catch {
-          // leave missing
-        }
-      }
-      return map;
-    } catch (err) {
-      console.warn('[market-data] telemetry batch failed, falling back per-mint to dexscreener', err.message);
-    }
-  }
+  if (!TELEMETRY_TOKEN) throw new Error('MARKET_DATA_NOT_CONFIGURED');
 
-  const map = {};
-  for (const addr of addresses) {
-    try {
-      map[addr] = await fetchDexScreenerQuote('solana', addr);
-    } catch {
-      // leave missing
+  try {
+    const batch = await fetchTelemetryBatch(addresses);
+    const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
+    const map = {};
+    for (const item of items) {
+      const addr = String(item.mint ?? item.address ?? '');
+      const q = normalizeTelemetryItem(item, addr);
+      if (q) map[addr] = q;
     }
+    return map;
+  } catch (err) {
+    throw new Error(`MARKET_DATA_ERROR:${err.message}`);
   }
-  return map;
 }
 
 /**
