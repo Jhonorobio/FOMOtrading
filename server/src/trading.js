@@ -5,7 +5,7 @@
  * by both the Chrome extension and a future Expo/React Native app through the same HTTP API.
  */
 import { run, all, get } from './db.js';
-import { fetchQuote } from './market-data.js';
+import { fetchQuote, fetchQuotesBatch } from './market-data.js';
 
 const FEE_RATE = Number(process.env.FEE_RATE ?? 0.001);
 const SLIPPAGE_RATE = Number(process.env.SLIPPAGE_RATE ?? 0.005);
@@ -334,14 +334,14 @@ export async function getPortfolio(userId, tzOffset = 0) {
   const positions = [];
   let marketValue = 0;
 
-  // Fetch live quotes for every open position in parallel.
-  const quotes = await Promise.allSettled(
-    rows.map((r) => fetchQuote(r.chain_id, r.address).catch(() => null))
-  );
+  // Fetch live quotes for every open position in one batch request (telemetry.io).
+  const quoteMap = await fetchQuotesBatch(
+    rows.map((r) => r.address)
+  ).catch(() => ({}));
 
-  rows.forEach((row, i) => {
+  rows.forEach((row) => {
     const pos = positionRowToPosition(row);
-    const q = quotes[i].status === 'fulfilled' ? quotes[i].value : null;
+    const q = quoteMap[row.address];
     if (q) {
       pos.currentPrice = q.priceUsd;
       pos.marketCapUsd = q.marketCapUsd;

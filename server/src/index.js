@@ -14,7 +14,7 @@ import {
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
   recordConsent, deleteAccountAndData,
 } from './trading.js';
-import { fetchQuote, fetchPriceHistory } from './market-data.js';
+import { fetchQuote, fetchPriceHistory, TELEMETRY_TOKEN } from './market-data.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -106,7 +106,7 @@ app.get('/api/config', (_req, res) => {
     minStartingBalance: MIN_STARTING_BALANCE,
     maxStartingBalance: MAX_STARTING_BALANCE,
     minimumAge: MINIMUM_AGE,
-    marketDataProvider: 'dexscreener',
+    marketDataProvider: TELEMETRY_TOKEN ? 'telemetry' : 'dexscreener',
   });
 });
 
