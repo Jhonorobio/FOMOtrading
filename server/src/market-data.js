@@ -60,20 +60,29 @@ function normalizeTelemetryItem(item, address) {
 /* DexScreener (fallback)                                           */
 /* ---------------------------------------------------------------- */
 
+const DEX_HEADERS = {
+  Accept: 'application/json',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) PaperTerminal/1.0',
+};
+
 export async function fetchDexScreenerQuote(chainId, address) {
-  const url = `${DEXSCREENER_BASE}/tokens/${encodeURIComponent(chainId)}/${encodeURIComponent(address)}`;
-  const res = await fetch(url, { headers: { Accept: 'application/json' } });
+  // DexScreener's current endpoint takes token address(es) without chainId in the URL.
+  const url = `${DEXSCREENER_BASE}/tokens/${encodeURIComponent(address)}`;
+  const res = await fetch(url, { headers: DEX_HEADERS });
   if (!res.ok) {
     if (res.status === 429) throw new Error('MARKET_DATA_RATE_LIMITED');
     throw new Error(`MARKET_DATA_ERROR:${res.status}`);
   }
   const data = await res.json();
   const pairs = data.pairs || [];
-  if (!pairs.length) throw new Error('ASSET_NOT_FOUND');
+  // Filter to the requested chain if possible, otherwise take the first.
+  const chainPairs = pairs.filter((p) => p.chainId === chainId);
+  const usable = chainPairs.length ? chainPairs : pairs;
+  if (!usable.length) throw new Error('ASSET_NOT_FOUND');
 
-  const pair = pairs.reduce(
+  const pair = usable.reduce(
     (best, p) => (p.liquidity?.usd ?? 0) > (best.liquidity?.usd ?? 0) ? p : best,
-    pairs[0]
+    usable[0]
   );
 
   const priceUsd = Number(pair.priceUsd);
@@ -81,7 +90,7 @@ export async function fetchDexScreenerQuote(chainId, address) {
 
   return {
     assetId: pair.pairAddress || `${chainId}:${address}`,
-    chainId,
+    chainId: pair.chainId || chainId,
     address,
     symbol: pair.baseToken?.symbol || address.slice(0, 6).toUpperCase(),
     name: pair.baseToken?.name || pair.baseToken?.symbol || pair.baseToken?.symbol,
