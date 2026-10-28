@@ -79,7 +79,6 @@ export async function fetchDexScreenerQuote(chainId, address) {
   const chainPairs = pairs.filter((p) => p.chainId === chainId);
   const usable = chainPairs.length ? chainPairs : pairs;
   if (!usable.length) throw new Error('ASSET_NOT_FOUND');
-
   const pair = usable.reduce(
     (best, p) => (p.liquidity?.usd ?? 0) > (best.liquidity?.usd ?? 0) ? p : best,
     usable[0]
@@ -121,16 +120,22 @@ export async function fetchQuote(chainId, address) {
   if (TELEMETRY_TOKEN) {
     try {
       const batch = await fetchTelemetryBatch([address]);
-      const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? batch[address] ?? {};
-      const item = Array.isArray(items) ? items.find((i) => String(i.address ?? i.mint ?? '').toLowerCase() === address.toLowerCase()) : items;
+      const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
+      const item = Array.isArray(items)
+        ? items.find((i) => String(i.mint ?? i.address ?? '').toLowerCase() === address.toLowerCase())
+        : items;
       const q = normalizeTelemetryItem(item, address);
       if (q) return q;
-      throw new Error('TELEMETRY_EMPTY');
+      // telemetry returned empty for this mint; fall through to DexScreener.
     } catch (err) {
       console.warn('[market-data] telemetry failed for', address, '- falling back to dexscreener', err.message);
     }
   }
-  return fetchDexScreenerQuote(chainId, address);
+  try {
+    return await fetchDexScreenerQuote(chainId, address);
+  } catch {
+    throw new Error('ASSET_NOT_FOUND');
+  }
 }
 
 /**
