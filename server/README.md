@@ -33,6 +33,37 @@ or switch to PostgreSQL if you prefer.
 
 ## Auth
 
-- Google sign-in: set `GOOGLE_CLIENT_ID` in `.env`.
-- Developer sign-in (no Google): `POST /api/auth/dev` with `{ email, name }` —
-  always enabled, useful for local testing.
+Personal access code only (no Google OAuth). The server accepts codes `FOMO`
+or `fomo` and unlocks a single personal account (`personal@paper.local`).
+
+- `POST /api/auth/code` with `{ code: "FOMO" }` → returns session token.
+
+## Market data
+
+Two providers available:
+
+| Provider | Setup | Notes |
+|----------|-------|-------|
+| **telemetry.io** (recommended) | Set `TELEMETRY_BEARER_TOKEN` in `.env` | Live prices, batch-capable, faster updates |
+| **DexScreener** (fallback) | No key needed | Public API, slower (~12-14s updates) |
+
+When `TELEMETRY_BEARER_TOKEN` is set, the server uses telemetry.io as the
+primary source and falls back to DexScreener on failure. When unset, it uses
+DexScreener only.
+
+Get your Bearer token from `app.telemetry.io` (Network tab →
+`/data/market_data_batch` → `Authorization: Bearer <token>`).
+
+## API endpoints
+
+See `server/src/index.js` for the full route list. Key endpoints:
+
+- `GET /api/health` — server status
+- `GET /api/config` — trading config + active market data provider
+- `GET /api/quote?chain=solana&address=<mint>` — live quote for a token
+- `POST /api/auth/code` — unlock personal account with access code
+- `POST /api/account/start` — create account with starting capital
+- `POST /api/trades` — place a simulated trade (BUY/SELL)
+- `POST /api/positions/close` — close an open position
+- `GET /api/portfolio` — account + positions + performance
+- `GET /api/export?format=json\|csv` — export trading history
