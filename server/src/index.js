@@ -188,6 +188,7 @@ app.get('/api/portfolio', requireSession, async (req, res, next) => {
       account: data.account,
       performance: data.performance,
       positions: data.positions,
+      tradingStyle: data.tradingStyle,
     });
   } catch (err) {
     next(err);
