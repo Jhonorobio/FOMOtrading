@@ -1,22 +1,17 @@
 /**
- * Telemetry.io authentication — automatic refresh token rotation.
+ * Telemetry.io authentication — automatic refresh token rotation OR direct access token.
  *
- * Telemetry.io access tokens (the Bearer token used for /data/market_data_batch)
- * are short-lived. A long-lived refresh token can mint new ones without any
- * user session:
- *
- *   POST https://app.telemetry.io/v1/auth/refresh
- *   body: { refresh_token }
- *   → { access_token, refresh_token?, expires_in? }
- *
- * Credentials live in server/data/telemetry-auth.json (gitignored) or the
- * TELEMETRY_REFRESH_TOKEN env var.
+ * Supports two modes:
+ * 1. Refresh token: POST https://app.telemetry.io/v1/auth/refresh with { refresh_token }
+ *    → returns new access_token. Credentials in server/data/telemetry-auth.json or
+ *    TELEMETRY_REFRESH_TOKEN env var.
+ * 2. Direct access token: TELEMETRY_ACCESS_TOKEN env var — used as-is as the Bearer
+ *    token, no refresh needed (good for short-lived session tokens).
  */
 import { JsonStore } from '../json-store.js';
 
 const REFRESH_URL = 'https://app.telemetry.io/v1/auth/refresh';
 const REFRESH_TIMEOUT_MS = 15_000;
-/** Refresh the access token when less than this much of its life remains. */
 const MIN_REMAINING_MS = 120_000;
 
 const store = new JsonStore('telemetry-auth');
@@ -34,20 +29,37 @@ function decodeExp(jwt) {
   }
 }
 
-/** Refresh token from env (deployments) or the local data file. */
+/** Refresh token from env or local data file. */
 export function getRefreshToken() {
   return process.env.TELEMETRY_REFRESH_TOKEN || store.get('refresh_token') || null;
 }
 
+/** Direct access token from env (no refresh). */
+export function getDirectAccessToken() {
+  return process.env.TELEMETRY_ACCESS_TOKEN || null;
+}
+
 export function hasCredentials() {
-  return Boolean(getRefreshToken());
+  return Boolean(getRefreshToken() || getDirectAccessToken());
 }
 
 /**
- * A telemetry.io access token valid for the next ~2 minutes at least.
+ * Returns a valid access token. Prefers direct token if set; otherwise refreshes.
  * Single-flight: concurrent callers share one in-flight refresh.
  */
 export function getAccessToken({ force = false } = {}) {
+  // Direct token mode: no refresh needed.
+  const direct = getDirectAccessToken();
+  if (direct) {
+    if (!force && accessToken === direct && Date.now() < accessExpMs - MIN_REMAINING_MS) {
+      return Promise.resolve(accessToken);
+    }
+    accessToken = direct;
+    accessExpMs = Date.now() + 86_400_000; // treat as valid for 24h
+    return Promise.resolve(accessToken);
+  }
+
+  // Refresh token mode.
   if (!force && accessToken && Date.now() < accessExpMs - MIN_REMAINING_MS) {
     return Promise.resolve(accessToken);
   }
@@ -55,7 +67,7 @@ export function getAccessToken({ force = false } = {}) {
 
   const refreshToken = getRefreshToken();
   if (!refreshToken) {
-    return Promise.reject(new Error('TELEMETRY: no refresh token (data/telemetry-auth.json or TELEMETRY_REFRESH_TOKEN)'));
+    return Promise.reject(new Error('TELEMETRY: no token configured (TELEMETRY_ACCESS_TOKEN or TELEMETRY_REFRESH_TOKEN)'));
   }
 
   inflight = (async () => {
@@ -75,7 +87,6 @@ export function getAccessToken({ force = false } = {}) {
       }
       accessToken = body.access_token;
       accessExpMs = decodeExp(body.access_token) || Date.now() + 3_600_000;
-      // Defensive: telemetry.io may rotate the refresh token someday.
       if (typeof body.refresh_token === 'string' && body.refresh_token && body.refresh_token !== refreshToken) {
         store.set('refresh_token', body.refresh_token);
         store.set('updated_at', new Date().toISOString());
@@ -102,6 +113,12 @@ export function setRefreshToken(token) {
   invalidateAccessToken();
 }
 
+/** Save a direct access token. */
+export function setDirectAccessToken(token) {
+  accessToken = token;
+  accessExpMs = Date.now() + 86_400_000;
+}
+
 /** Diagnostics for GET /api/market/telemetry/status. Never exposes the token. */
 export function telemetryAuthStatus() {
   return {
@@ -109,5 +126,6 @@ export function telemetryAuthStatus() {
     hasCachedToken: Boolean(accessToken),
     tokenExpiresAt: accessExpMs || null,
     tokenExpiresInSeconds: accessExpMs ? Math.max(0, Math.round((accessExpMs - Date.now()) / 1000)) : null,
+    mode: getDirectAccessToken() ? 'direct' : getRefreshToken() ? 'refresh' : 'none',
   };
 }

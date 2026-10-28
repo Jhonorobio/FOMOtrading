@@ -28,7 +28,7 @@ async function fetchTelemetryBatch(mints) {
     },
   });
   if (!res.ok) {
-    // If the access token was rejected, invalidate and let the caller retry once.
+    // If the access token was rejected, invalidate so the next call knows it's expired.
     if (res.status === 401 || res.status === 403) invalidateAccessToken();
     throw new Error(`TELEMETRY_ERROR:${res.status}`);
   }

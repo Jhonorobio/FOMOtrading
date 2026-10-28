@@ -145,20 +145,23 @@ app.get('/api/market/telemetry/status', (_req, res) => {
   res.json(telemetryAuthStatus());
 });
 
-app.post('/api/market/telemetry/refresh-token', async (req, res, next) => {
+app.post('/api/market/telemetry/token', async (req, res, next) => {
   try {
-    const { token } = req.body;
+    const { token, type = 'access' } = req.body;
     if (!token || typeof token !== 'string') {
       return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'token is required.' } });
     }
-    setRefreshToken(token);
-    // Try to mint an access token right away so we know it's valid.
-    try {
-      await getAccessToken({ force: true });
-      res.json({ ok: true, message: 'Refresh token saved and access token minted.' });
-    } catch (err) {
-      // Token was saved but minting failed; still return ok so user can debug.
-      res.json({ ok: true, warning: err.message });
+    if (type === 'refresh') {
+      setRefreshToken(token);
+      try {
+        await getAccessToken({ force: true });
+        res.json({ ok: true, message: 'Refresh token saved and access token minted.' });
+      } catch (err) {
+        res.json({ ok: true, warning: err.message });
+      }
+    } else {
+      setDirectAccessToken(token);
+      res.json({ ok: true, message: 'Direct access token set.' });
     }
   } catch (err) {
     next(err);
