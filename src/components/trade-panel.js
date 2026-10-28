@@ -265,7 +265,7 @@ export function createTradePanel({ root, mode, onUseRealPanel }) {
   }
 
   // ---------- derived ----------
-  const symbol = () => state.quote?.symbol || state.asset?.symbol || 'token';
+  const symbol = () => state.quote?.symbol || state.position?.symbol || state.asset?.symbol || 'token';
   const isStale = () => !!state.quote && Date.now() - state.quoteReceivedAt > PRICE_STALE_MS;
   const norm = (s) => String(s || '').replace(/^\$/, '').toUpperCase();
   const symbolMismatch = () =>
@@ -489,12 +489,13 @@ Total P&L vs ${formatUsd(perf.startingBalance, { decimals: 0 })} start: ${format
     el.position.classList.toggle('profit', p.unrealizedPnl > 0);
     el.position.classList.toggle('loss', p.unrealizedPnl < 0);
     const chg = pnlClass(p.unrealizedPnl);
+    const posSym = p.symbol || sym || 'token';
     setHtml(el.position, `
       <div class="pos-hd">
-        ${avatar(sym, p.chainId, p.address)}
+        ${avatar(posSym, p.chainId, p.address)}
         <span class="pos-lead">
           <b class="num">${level(p.currentPrice, p.marketCapUsd)}</b>
-          <small class="num">${formatCompactQty(p.quantity)} ${escapeHtml(sym)}</small>
+          <small class="num">${formatCompactQty(p.quantity)} ${escapeHtml(posSym)}</small>
         </span>
         <span class="pos-pnl num ${chg}">
           <b>${formatUsd(p.unrealizedPnl, { sign: true })}</b>
