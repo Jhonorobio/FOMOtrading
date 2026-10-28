@@ -9,8 +9,8 @@ export const ADMIN_EMAILS = ['mateeur9944@gmail.com'];
 export const DEFAULT_BUY_PRESETS = [10, 100, 500, 1000];
 export const DEFAULT_SELL_PRESETS = [25, 50, 75, 100];
 
-export const QUOTE_REFRESH_MS = 2000;
-export const PORTFOLIO_REFRESH_MS = 10000;
+export const QUOTE_REFRESH_MS = 1000;
+export const PORTFOLIO_REFRESH_MS = 1000;
 export const PRICE_STALE_MS = 30000;
 
 export const TARGET_TERMINAL = {
