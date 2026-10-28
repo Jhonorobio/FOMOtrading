@@ -14,7 +14,8 @@ import {
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
   recordConsent, deleteAccountAndData,
 } from './trading.js';
-import { fetchQuote, TELEMETRY_TOKEN, fetchTokenLogo } from './market-data.js';
+import { fetchQuote, fetchTokenLogo, telemetryAuthStatus, invalidateAccessToken } from './market-data.js';
+import { getRefreshToken, getAccessToken, setRefreshToken, hasCredentials } from './services/telemetry-auth.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -97,6 +98,7 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.get('/api/config', (_req, res) => {
+  const auth = telemetryAuthStatus();
   res.json({
     feeRate: FEE_RATE,
     slippageRate: SLIPPAGE_RATE,
@@ -106,7 +108,12 @@ app.get('/api/config', (_req, res) => {
     minStartingBalance: MIN_STARTING_BALANCE,
     maxStartingBalance: MAX_STARTING_BALANCE,
     minimumAge: MINIMUM_AGE,
-    marketDataProvider: TELEMETRY_TOKEN ? 'telemetry' : 'none',
+    marketDataProvider: auth.hasRefreshToken ? 'telemetry' : 'none',
+    telemetryAuth: {
+      hasRefreshToken: auth.hasRefreshToken,
+      hasCachedToken: auth.hasCachedToken,
+      tokenExpiresInSeconds: auth.tokenExpiresInSeconds,
+    },
   });
 });
 
@@ -127,6 +134,32 @@ app.get('/api/token-logo', async (req, res, next) => {
     if (!chain || !address) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'chain and address are required.' } });
     const dataUrl = await fetchTokenLogo(address);
     res.json({ dataUrl: dataUrl || null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ---------------- telemetry.io auth (refresh token) ---------------- */
+
+app.get('/api/market/telemetry/status', (_req, res) => {
+  res.json(telemetryAuthStatus());
+});
+
+app.post('/api/market/telemetry/refresh-token', async (req, res, next) => {
+  try {
+    const { token } = req.body;
+    if (!token || typeof token !== 'string') {
+      return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'token is required.' } });
+    }
+    setRefreshToken(token);
+    // Try to mint an access token right away so we know it's valid.
+    try {
+      await getAccessToken({ force: true });
+      res.json({ ok: true, message: 'Refresh token saved and access token minted.' });
+    } catch (err) {
+      // Token was saved but minting failed; still return ok so user can debug.
+      res.json({ ok: true, warning: err.message });
+    }
   } catch (err) {
     next(err);
   }

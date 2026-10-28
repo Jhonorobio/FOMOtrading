@@ -1,10 +1,12 @@
 /**
  * Market data client for the paper server.
  * Primary and only source: telemetry.io (live prices, batch-capable, requires Bearer token).
+ * Access token is auto-refreshed from a long-lived refresh token.
  * No DexScreener, no connection to FOMO's private trading endpoints.
  */
 const TELEMETRY_BASE = 'https://app.telemetry.io/data/market_data_batch';
-export const TELEMETRY_TOKEN = process.env.TELEMETRY_BEARER_TOKEN || '';
+
+import { getAccessToken, invalidateAccessToken, telemetryAuthStatus } from './services/telemetry-auth.js';
 
 /** In-memory cache of token logos as data: URLs (chain:address -> dataUrl). */
 const logoCache = new Map();
@@ -15,16 +17,21 @@ const logoCache = new Map();
 
 /** Fetch quotes for one or more mints from telemetry.io in a single batch request. */
 async function fetchTelemetryBatch(mints) {
-  if (!TELEMETRY_TOKEN || !mints.length) return {};
+  const token = await getAccessToken();
+  if (!mints.length) return {};
   const qs = mints.map((m) => `mint=${encodeURIComponent(m)}`).join('&');
   const url = `${TELEMETRY_BASE}?${qs}`;
   const res = await fetch(url, {
     headers: {
       Accept: 'application/json',
-      Authorization: `Bearer ${TELEMETRY_TOKEN}`,
+      Authorization: `Bearer ${token}`,
     },
   });
-  if (!res.ok) throw new Error(`TELEMETRY_ERROR:${res.status}`);
+  if (!res.ok) {
+    // If the access token was rejected, invalidate and let the caller retry once.
+    if (res.status === 401 || res.status === 403) invalidateAccessToken();
+    throw new Error(`TELEMETRY_ERROR:${res.status}`);
+  }
   return await res.json();
 }
 
@@ -61,10 +68,9 @@ function normalizeTelemetryItem(item, address) {
 /**
  * Fetch a quote for a token. Only uses telemetry.io.
  * Throws ASSET_NOT_FOUND if the token has no price on telemetry.io.
+ * On 401/403 invalidates the cached access token so the next call re-freshes.
  */
 export async function fetchQuote(chainId, address) {
-  if (!TELEMETRY_TOKEN) throw new Error('MARKET_DATA_NOT_CONFIGURED');
-
   try {
     const batch = await fetchTelemetryBatch([address]);
     const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
@@ -86,8 +92,6 @@ export async function fetchQuote(chainId, address) {
  */
 export async function fetchQuotesBatch(addresses) {
   if (!addresses.length) return {};
-
-  if (!TELEMETRY_TOKEN) throw new Error('MARKET_DATA_NOT_CONFIGURED');
 
   try {
     const batch = await fetchTelemetryBatch(addresses);
@@ -112,10 +116,6 @@ export async function fetchQuotesBatch(addresses) {
  * @returns {Promise<string|null>} data: URL or null
  */
 export async function fetchTokenLogo(address) {
-  if (!TELEMETRY_TOKEN) return null;
-  const key = address;
-  if (logoCache.has(key)) return logoCache.get(key);
-
   try {
     const batch = await fetchTelemetryBatch([address]);
     const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
@@ -132,9 +132,12 @@ export async function fetchTokenLogo(address) {
     const base64 = buffer.toString('base64');
     const dataUrl = `data:${contentType};base64,${base64}`;
 
-    logoCache.set(key, dataUrl);
+    logoCache.set(address, dataUrl);
     return dataUrl;
   } catch {
     return null;
   }
 }
+
+/** Expose auth status for diagnostics. */
+export { telemetryAuthStatus, invalidateAccessToken };
