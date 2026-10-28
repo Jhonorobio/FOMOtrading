@@ -15,7 +15,7 @@ import {
   recordConsent, deleteAccountAndData,
 } from './trading.js';
 import { fetchQuote, fetchTokenLogo, telemetryAuthStatus, invalidateAccessToken } from './market-data.js';
-import { getRefreshToken, getAccessToken, setRefreshToken, hasCredentials } from './services/telemetry-auth.js';
+import { setDirectAccessToken, hasCredentials } from './services/telemetry-auth.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -147,22 +147,12 @@ app.get('/api/market/telemetry/status', (_req, res) => {
 
 app.post('/api/market/telemetry/token', async (req, res, next) => {
   try {
-    const { token, type = 'access' } = req.body;
+    const { token } = req.body;
     if (!token || typeof token !== 'string') {
       return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'token is required.' } });
     }
-    if (type === 'refresh') {
-      setRefreshToken(token);
-      try {
-        await getAccessToken({ force: true });
-        res.json({ ok: true, message: 'Refresh token saved and access token minted.' });
-      } catch (err) {
-        res.json({ ok: true, warning: err.message });
-      }
-    } else {
-      setDirectAccessToken(token);
-      res.json({ ok: true, message: 'Direct access token set.' });
-    }
+    setDirectAccessToken(token);
+    res.json({ ok: true, message: 'Access token set.' });
   } catch (err) {
     next(err);
   }

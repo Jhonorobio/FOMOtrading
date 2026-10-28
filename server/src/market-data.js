@@ -1,7 +1,8 @@
 /**
  * Market data client for the paper server.
  * Primary and only source: telemetry.io (live prices, batch-capable, requires Bearer token).
- * Access token is auto-refreshed from a long-lived refresh token.
+ * Access token is set via TELEMETRY_ACCESS_TOKEN env var or POST /api/market/telemetry/token.
+ * When it expires (401), set a new one via the API endpoint — no server restart needed.
  * No DexScreener, no connection to FOMO's private trading endpoints.
  */
 const TELEMETRY_BASE = 'https://app.telemetry.io/data/market_data_batch';
@@ -28,7 +29,6 @@ async function fetchTelemetryBatch(mints) {
     },
   });
   if (!res.ok) {
-    // If the access token was rejected, invalidate so the next call knows it's expired.
     if (res.status === 401 || res.status === 403) invalidateAccessToken();
     throw new Error(`TELEMETRY_ERROR:${res.status}`);
   }
@@ -38,8 +38,6 @@ async function fetchTelemetryBatch(mints) {
 /** Normalise a telemetry.io response item into the Quote shape the extension expects. */
 function normalizeTelemetryItem(item, address) {
   if (!item) return null;
-  // telemetry.io response fields (verified against live API):
-  // mint, symbol, name, price_usd, market_cap_usd, liquidity_usd, image, decimals, ...
   const priceUsd = Number(item.price_usd ?? item.priceUsd ?? 0);
   if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
 
@@ -55,7 +53,7 @@ function normalizeTelemetryItem(item, address) {
     priceUsd,
     liquidityUsd: Number(item.liquidity_usd ?? 0) || null,
     marketCapUsd: Number(item.market_cap_usd ?? 0) || null,
-    change24hPct: null, // telemetry batch endpoint doesn't include 24h change directly
+    change24hPct: null,
     source: 'telemetry',
     fetchedAt: new Date().toISOString(),
   };
@@ -65,79 +63,89 @@ function normalizeTelemetryItem(item, address) {
 /* Public API                                                       */
 /* ---------------------------------------------------------------- */
 
-/**
- * Fetch a quote for a token. Only uses telemetry.io.
- * Throws ASSET_NOT_FOUND if the token has no price on telemetry.io.
- * On 401/403 invalidates the cached access token so the next call re-freshes.
- */
 export async function fetchQuote(chainId, address) {
-  try {
-    const batch = await fetchTelemetryBatch([address]);
-    const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
-    const item = Array.isArray(items)
-      ? items.find((i) => String(i.mint ?? i.address ?? '').toLowerCase() === address.toLowerCase())
-      : items;
-    const q = normalizeTelemetryItem(item, address);
-    if (q) return q;
-    throw new Error('ASSET_NOT_FOUND');
-  } catch (err) {
-    if (err.message === 'ASSET_NOT_FOUND') throw err;
-    throw new Error(`MARKET_DATA_ERROR:${err.message}`);
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const batch = await fetchTelemetryBatch([address]);
+      const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
+      const item = Array.isArray(items)
+        ? items.find((i) => String(i.mint ?? i.address ?? '').toLowerCase() === address.toLowerCase())
+        : items;
+      const q = normalizeTelemetryItem(item, address);
+      if (q) return q;
+      throw new Error('ASSET_NOT_FOUND');
+    } catch (err) {
+      lastErr = err;
+      if (err.message === 'ASSET_NOT_FOUND') throw err;
+      if (err.message.includes('TELEMETRY_ERROR:401') || err.message.includes('TELEMETRY_ERROR:403')) {
+        invalidateAccessToken();
+        continue;
+      }
+      throw err;
+    }
   }
+  throw lastErr || new Error('TELEMETRY_ERROR:unknown');
 }
 
-/**
- * Fetch quotes for multiple mints in one batch request (telemetry.io).
- * Returns a map of address -> Quote.
- */
 export async function fetchQuotesBatch(addresses) {
   if (!addresses.length) return {};
 
-  try {
-    const batch = await fetchTelemetryBatch(addresses);
-    const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
-    const map = {};
-    for (const item of items) {
-      const addr = String(item.mint ?? item.address ?? '');
-      const q = normalizeTelemetryItem(item, addr);
-      if (q) map[addr] = q;
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const batch = await fetchTelemetryBatch(addresses);
+      const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
+      const map = {};
+      for (const item of items) {
+        const addr = String(item.mint ?? item.address ?? '');
+        const q = normalizeTelemetryItem(item, addr);
+        if (q) map[addr] = q;
+      }
+      return map;
+    } catch (err) {
+      lastErr = err;
+      if (err.message.includes('TELEMETRY_ERROR:401') || err.message.includes('TELEMETRY_ERROR:403')) {
+        invalidateAccessToken();
+        continue;
+      }
+      throw err;
     }
-    return map;
-  } catch (err) {
-    throw new Error(`MARKET_DATA_ERROR:${err.message}`);
   }
+  throw lastErr || new Error('TELEMETRY_ERROR:unknown');
 }
 
-/**
- * Fetch a token logo from telemetry.io and return it as a data: URL.
- * The extension runs on fomo.family whose CSP blocks external images but
- * allows data: images, so we download and re-encode the logo server-side.
- * @param {string} address  token mint address
- * @returns {Promise<string|null>} data: URL or null
- */
 export async function fetchTokenLogo(address) {
-  try {
-    const batch = await fetchTelemetryBatch([address]);
-    const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
-    const item = Array.isArray(items)
-      ? items.find((i) => String(i.mint ?? i.address ?? '').toLowerCase() === address.toLowerCase())
-      : items;
-    const imageUrl = item?.image || item?.imageUrl;
-    if (!imageUrl) return null;
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const batch = await fetchTelemetryBatch([address]);
+      const items = Array.isArray(batch) ? batch : batch.data ?? batch.items ?? {};
+      const item = Array.isArray(items)
+        ? items.find((i) => String(i.mint ?? i.address ?? '').toLowerCase() === address.toLowerCase())
+        : items;
+      const imageUrl = item?.image || item?.imageUrl;
+      if (!imageUrl) return null;
 
-    const res = await fetch(imageUrl);
-    if (!res.ok) return null;
-    const buffer = Buffer.from(await res.arrayBuffer());
-    const contentType = res.headers.get('content-type') || 'image/png';
-    const base64 = buffer.toString('base64');
-    const dataUrl = `data:${contentType};base64,${base64}`;
+      const res = await fetch(imageUrl);
+      if (!res.ok) return null;
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const contentType = res.headers.get('content-type') || 'image/png';
+      const base64 = buffer.toString('base64');
+      const dataUrl = `data:${contentType};base64,${base64}`;
 
-    logoCache.set(address, dataUrl);
-    return dataUrl;
-  } catch {
-    return null;
+      logoCache.set(address, dataUrl);
+      return dataUrl;
+    } catch (err) {
+      lastErr = err;
+      if (err.message.includes('TELEMETRY_ERROR:401') || err.message.includes('TELEMETRY_ERROR:403')) {
+        invalidateAccessToken();
+        continue;
+      }
+      return null;
+    }
   }
+  return null;
 }
 
-/** Expose auth status for diagnostics. */
 export { telemetryAuthStatus, invalidateAccessToken };
