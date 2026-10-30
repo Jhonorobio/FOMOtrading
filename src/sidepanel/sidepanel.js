@@ -25,6 +25,7 @@ const TABS = [
   ['portfolio', 'Portfolio'],
   ['history', 'History'],
   ['style', 'Style'],
+  ['tokens', 'Tokens'],
 ];
 const STYLE_SAMPLE = 5; // closed trades needed for a confident style read
 
@@ -40,6 +41,8 @@ const state = {
   portfolio: null,
   trades: null,
   closedTrades: null,
+  tokens: null,
+  tokensError: null,
   posTab: 'open',
   expandedRow: null,
   filters: { side: '', asset: '', from: '', to: '', scope: 'current' },
@@ -101,7 +104,7 @@ async function init() {
       const wasSignedIn = !!state.user;
       state.user = await getSessionUser();
       if (!!state.user !== wasSignedIn) {
-        Object.assign(state, { portfolio: null, trades: null, closedTrades: null, tab: 'trade', account: null, needsSetup: false, capital: null, profileOpen: false });
+        Object.assign(state, { portfolio: null, trades: null, closedTrades: null, tokens: null, tokensError: null, tab: 'trade', account: null, needsSetup: false, capital: null, profileOpen: false });
         await loadAccount();
         render();
       }
@@ -115,6 +118,7 @@ async function init() {
     if (tab.active && (info.url || info.status === 'complete')) onTabChange();
   });
   setInterval(() => document.visibilityState === 'visible' && state.user && state.tab === 'portfolio' && loadTabData(), 15000);
+  setInterval(() => document.visibilityState === 'visible' && state.user && state.tab === 'tokens' && loadTabData(), 5000);
 }
 
 /** Is there an active paper account, or does the user still need to choose starting capital? */
@@ -166,10 +170,11 @@ async function loadTabData() {
   if (!state.user || state.needsSetup) return;
   try {
     const needPortfolio = state.tab === 'portfolio' || state.tab === 'style' || !state.portfolio;
-    const [portfolio, trades, closed] = await Promise.all([
+    const [portfolio, trades, closed, tokensResp] = await Promise.all([
       needPortfolio ? api.portfolio() : null,
       state.tab === 'history' ? api.trades(historyParams()) : null,
       state.tab === 'portfolio' && state.posTab === 'closed' ? api.closedTrades() : null,
+      state.tab === 'tokens' ? api.tokens() : null,
     ]);
     if (portfolio) {
       state.portfolio = portfolio;
@@ -178,13 +183,20 @@ async function loadTabData() {
     }
     if (trades) state.trades = trades.trades;
     if (closed) state.closedTrades = closed.closedTrades;
+    if (tokensResp) {
+      state.tokens = tokensResp.tokens ?? [];
+      state.tokensError = null;
+    }
     state.serverError = null;
   } catch (err) {
     if (err.code === 'SERVER_UNREACHABLE') state.serverError = err;
     else if (err.code === 'ACCOUNT_SETUP_REQUIRED') {
       state.needsSetup = true;
       return render();
-    } else flash('err', err.message);
+    } else {
+      if (state.tab === 'tokens') state.tokensError = err.message;
+      else flash('err', err.message);
+    }
   }
   renderView();
   renderTopbar();
@@ -281,7 +293,12 @@ function renderView() {
     return;
   }
   viewHost.hidden = false;
-  const body = { portfolio: renderPortfolio, history: renderHistory, style: renderStyle }[state.tab]();
+  const body = {
+    portfolio: renderPortfolio,
+    history: renderHistory,
+    style: renderStyle,
+    tokens: renderTokens,
+  }[state.tab]();
   setViewHtml(offline + banner + body);
   hydrateLogos(viewHost);
 }
@@ -608,6 +625,39 @@ function tradeRow(t) {
           : ''
       }
     </div>`;
+}
+
+// ---------- tokens (Mobula discovery feed via server) ----------
+function renderTokens() {
+  if (state.tokensError) {
+    return `<div class="banner err" role="status">${escapeHtml(state.tokensError)}</div>`;
+  }
+  const tokens = state.tokens || [];
+  if (!tokens.length) {
+    return `<div class="empty"><b>No tokens yet</b><span>The Mobula discovery feed is connecting. Wait a few seconds for live tokens to appear.</span></div>`;
+  }
+  const list = tokens.map((t) => {
+    return `
+      <div class="token-row">
+        <div class="token-main">
+          ${avatar(t.symbol || '?', t.chainId, t.address)}
+          <div class="token-info">
+            <b class="token-sym">${escapeHtml(t.symbol || '?')}</b>
+            <small class="token-name muted">${escapeHtml(t.name || '')}</small>
+          </div>
+          <button class="token-open" data-act="open-token" data-chain="${escapeHtml(t.chainId || 'solana')}" data-address="${escapeHtml(t.address)}" title="Open ${escapeHtml(t.symbol || '?')} on FOMO">${icons.external(12)}</button>
+        </div>
+        <div class="token-stats">
+          <div class="token-stat"><span class="token-label">Market cap</span><span class="token-value num">${formatCompactUsd(t.marketCap)}</span></div>
+          <div class="token-stat"><span class="token-label">Holders</span><span class="token-value num">${Number(t.holders || 0).toLocaleString()}</span></div>
+        </div>
+      </div>`;
+  }).join('');
+  return `
+    <section class="box pad">
+      <div class="section-h"><span>Discovered tokens</span><span class="num">${tokens.length}</span></div>
+      <div class="token-list">${list}</div>
+    </section>`;
 }
 
 // ---------- style: competence feedback, not badges ----------

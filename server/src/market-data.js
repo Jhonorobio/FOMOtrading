@@ -20,7 +20,7 @@ const logoCache = new Map();
 async function fetchTelemetryBatch(mints) {
   const token = await getAccessToken();
   if (!mints.length) return {};
-  const qs = mints.map((m) => `mint=${encodeURIComponent(m)}`).join('&');
+  const qs = `mint=${encodeURIComponent(mints.join(','))}`;
   const url = `${TELEMETRY_BASE}?${qs}`;
   const res = await fetch(url, {
     headers: {
@@ -109,10 +109,13 @@ export async function fetchQuotesBatch(addresses) {
         invalidateAccessToken();
         continue;
       }
-      throw err;
+      // No hay credenciales de telemetry o error no recuperable: devolver vacío
+      // para que /api/tokens no falle y la extensión muestre lista vacía en lugar de error.
+      console.error('[market-data] fetchQuotesBatch failed:', err.message);
+      return {};
     }
   }
-  throw lastErr || new Error('TELEMETRY_ERROR:unknown');
+  return {};
 }
 
 export async function fetchTokenLogo(address) {

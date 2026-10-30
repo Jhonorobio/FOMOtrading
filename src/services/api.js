@@ -35,6 +35,7 @@ const qs = (params) => {
 };
 
 export const api = {
+  tokens: () => send({ type: 'api', method: 'GET', path: '/api/tokens' }),
   config: () => send({ type: 'api', method: 'GET', path: '/api/config' }),
   me: () => send({ type: 'api', method: 'GET', path: '/api/me' }),
   quote: (asset) => send({ type: 'api', method: 'GET', path: `/api/quote${qs({ chain: asset.chain, address: asset.address })}` }),

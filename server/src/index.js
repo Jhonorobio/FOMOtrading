@@ -14,8 +14,9 @@ import {
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
   recordConsent, deleteAccountAndData,
 } from './trading.js';
-import { fetchQuote, fetchTokenLogo, telemetryAuthStatus, invalidateAccessToken } from './market-data.js';
+import { fetchQuote, fetchTokenLogo, fetchQuotesBatch, telemetryAuthStatus, invalidateAccessToken } from './market-data.js';
 import { setDirectAccessToken, hasCredentials } from './services/telemetry-auth.js';
+import { fetchMobulaTokens, normalizeMobulaToken, getLogoDataUrl } from './mobula-http.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -97,6 +98,29 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'paper-terminal-server', time: new Date().toISOString() });
 });
 
+app.get('/api/tokens', async (_req, res, next) => {
+  try {
+    console.log('[api/tokens] fetching tokens from Mobula pulse endpoint');
+    const mobulaTokens = await fetchMobulaTokens();
+    console.log('[api/tokens] Mobula returned:', mobulaTokens.length, 'tokens');
+
+    // Normalizar tokens de Mobula
+    const normalized = mobulaTokens.map((t) => normalizeMobulaToken(t));
+
+    // Ordenar por fecha de creación: más reciente primero (descendente).
+    normalized.sort((a, b) => {
+      const da = new Date(a.createdAt || 0).getTime();
+      const db = new Date(b.createdAt || 0).getTime();
+      return db - da;
+    });
+
+    res.json({ tokens: normalized, count: normalized.length });
+  } catch (err) {
+    console.error('[api/tokens] error:', err.code, err.message);
+    next(err);
+  }
+});
+
 app.get('/api/config', (_req, res) => {
   const auth = telemetryAuthStatus();
   res.json({
@@ -132,7 +156,7 @@ app.get('/api/token-logo', async (req, res, next) => {
   try {
     const { chain, address } = req.query;
     if (!chain || !address) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'chain and address are required.' } });
-    const dataUrl = await fetchTokenLogo(address);
+    const dataUrl = await getLogoDataUrl(address);
     res.json({ dataUrl: dataUrl || null });
   } catch (err) {
     next(err);
