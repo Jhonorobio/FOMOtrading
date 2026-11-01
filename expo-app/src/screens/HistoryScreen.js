@@ -43,7 +43,7 @@ export default function HistoryScreen() {
 
       {!trades || trades.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyTitle>No hay operaciones aún</Text>
+          <Text style={styles.emptyTitle}>No hay operaciones aún</Text>
           <Text style={styles.emptySub}>Compra o vende un token y aparecerá aquí.</Text>
         </View>
       ) : (
