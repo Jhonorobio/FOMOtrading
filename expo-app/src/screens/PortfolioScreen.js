@@ -89,12 +89,6 @@ export default function PortfolioScreen() {
   );
 }
 
-const Loading = () => (
-  <View style={styles.loadingContainer}>
-    <ActivityIndicator size="large" color={COLORS.paper} />
-  </View>
-);
-
 const StatRow = ({ label, value }) => (
   <View style={styles.statCard}>
     <Text style={styles.statLabel}>{label}</Text>
