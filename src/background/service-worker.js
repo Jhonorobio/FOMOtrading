@@ -75,6 +75,57 @@ async function bumpPortfolioVersion() {
 /** One sign-in flow at a time. */
 let signInCode = null;
 
+// Notificaciones de tokens nuevos en Graduados
+const seenTokenAddresses = new Set();
+const extensionStartTime = Date.now();
+let tokensAlarmInitialized = false;
+
+/** Revisa si hay tokens nuevos desde la última vez y lanza notificación por cada uno. */
+async function checkNewTokens() {
+  try {
+    const { serverUrl } = await getSettings();
+    if (!serverUrl) return;
+    const res = await fetch(serverUrl.replace(/\/+$/, '') + '/api/tokens');
+    if (!res.ok) return;
+    const data = await res.json();
+    const tokens = Array.isArray(data.tokens) ? data.tokens : [];
+    const now = Date.now();
+    for (const t of tokens) {
+      if (!t.address) continue;
+      if (seenTokenAddresses.has(t.address)) continue;
+      seenTokenAddresses.add(t.address);
+      // Evitar notificar todo el catálogo existente justo al instalar/recargar
+      if (now - extensionStartTime < 8000) continue;
+      try {
+        await chrome.notifications.create('paper-terminal-token-' + t.address, {
+          type: 'basic',
+          iconUrl: 'icons/icon-48.png',
+          title: 'Nuevo token en Graduados',
+          message: `${t.symbol || t.address.slice(0, 6)}…`,
+        });
+      } catch {
+        // Notificaciones bloqueadas por el usuario: silencioso
+      }
+    }
+  } catch {
+    // Servidor no disponible o error de red: silencioso
+  }
+}
+
+/** Asegura que exista la alarma periódica para revisar tokens nuevos. */
+async function ensureTokensAlarm() {
+  if (tokensAlarmInitialized) return;
+  tokensAlarmInitialized = true;
+  try {
+    await chrome.alarms.create('new-tokens-graduados', { periodInMinutes: 1 / 12 }); // cada 5 segundos
+  } catch {
+    // Alarma no disponible
+  }
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'new-tokens-graduados') checkNewTokens();
+  });
+}
+
 function signInWithCode({ code }) {
   signInCode ??= runSignInWithCode(code).finally(() => (signInCode = null));
   return signInCode;
@@ -142,3 +193,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   );
   return true;
 });
+
+// Iniciar la alarma periódica de tokens nuevos en Graduados
+ensureTokensAlarm();

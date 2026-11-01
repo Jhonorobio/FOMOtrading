@@ -42,7 +42,7 @@
    "manifest_version": 3,
    "minimum_chrome_version": "116",
    "name": "Paper Terminal — practice crypto trading",
-   "permissions": [ "storage", "sidePanel" ],
+   "permissions": [ "storage", "sidePanel", "notifications", "alarms" ],
    "short_name": "Paper Terminal",
    "side_panel": {
       "default_path": "src/sidepanel/sidepanel.html"

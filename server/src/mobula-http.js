@@ -163,14 +163,39 @@ export async function fetchMobulaTokens() {
   const data = await res.json();
   const rawTokens = extractTokens(data);
 
+  // Filtrar tokens cuyo objeto security solo tiene launchpadFeePercentage (y nada más)
+  const filteredTokens = rawTokens.filter((t) => {
+    const security = t && t.security;
+    if (!security) return true; // sin security, pasa
+
+    const keys = Object.keys(security);
+    // Si security solo tiene launchpadFeePercentage como clave, se excluye
+    if (keys.length === 1 && keys[0] === 'launchpadFeePercentage') {
+      return false;
+    }
+
+    // Si tiene otras claves además de launchpadFeePercentage, verificar que al menos una tenga un valor real
+    const otherKeys = keys.filter((k) => k !== 'launchpadFeePercentage');
+    const hasOtherRealValue = otherKeys.some((k) => {
+      const v = security[k];
+      return v !== undefined && v !== null && v !== '' && v !== false;
+    });
+
+    if (!hasOtherRealValue) {
+      return false; // security está "vacío" excepto por launchpadFeePercentage
+    }
+
+    return true;
+  });
+
   // Cachear logo URLs por address para uso posterior en /api/token-logo
-  for (const t of rawTokens) {
+  for (const t of filteredTokens) {
     if (t.logo) {
       logoUrlCache.set(t.address, t.logo);
     }
   }
 
-  const tokens = rawTokens.map((t) => normalizeMobulaToken(t));
+  const tokens = filteredTokens.map((t) => normalizeMobulaToken(t));
   return tokens;
 }
 
@@ -213,7 +238,7 @@ export function normalizeMobulaToken(t) {
 
   return {
     address: t.address,
-    chainId: t.chainId || 'solana',
+    chainId: t.chainId ? String(t.chainId).split(':')[0] : 'solana',
     symbol: t.symbol || t.address.slice(0, 6).toUpperCase(),
     name: t.name || t.symbol || t.address.slice(0, 6).toUpperCase(),
     price: null,
@@ -221,6 +246,7 @@ export function normalizeMobulaToken(t) {
     liquidity: Number(t.liquidity ?? t.liquidityUsd ?? 0) || null,
     holders: Number(t.holdersCount ?? t.holders ?? 0) || null,
     securityScore: securityScore > 0 ? securityScore : null,
+    security: t.security ?? null,
     createdAt,
     source: 'mobula',
     logo: null, // Logo se obtiene vía /api/token-logo

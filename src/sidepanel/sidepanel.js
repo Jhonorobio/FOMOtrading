@@ -25,7 +25,8 @@ const TABS = [
   ['portfolio', 'Portfolio'],
   ['history', 'History'],
   ['style', 'Style'],
-  ['tokens', 'Tokens'],
+  ['tokens', 'Graduados'],
+  ['trending', 'Trending'],
 ];
 const STYLE_SAMPLE = 5; // closed trades needed for a confident style read
 
@@ -67,6 +68,8 @@ const state = {
 let tradePanel = null;
 let tradeHost = null;
 let viewHost = null;
+let tokensContainer = null; // referencia al elemento .token-list en el DOM (para sync incremental sin parpadeo)
+let lastTokensSignature = null; // firma ligera para detectar si hay cambios reales
 
 // ---------- bootstrap ----------
 attachPositionHover(app);
@@ -118,7 +121,7 @@ async function init() {
     if (tab.active && (info.url || info.status === 'complete')) onTabChange();
   });
   setInterval(() => document.visibilityState === 'visible' && state.user && state.tab === 'portfolio' && loadTabData(), 15000);
-  setInterval(() => document.visibilityState === 'visible' && state.user && state.tab === 'tokens' && loadTabData(), 5000);
+  setInterval(() => document.visibilityState === 'visible' && state.user && state.tab === 'tokens' && loadTabData(), 2000);
 }
 
 /** Is there an active paper account, or does the user still need to choose starting capital? */
@@ -174,7 +177,7 @@ async function loadTabData() {
       needPortfolio ? api.portfolio() : null,
       state.tab === 'history' ? api.trades(historyParams()) : null,
       state.tab === 'portfolio' && state.posTab === 'closed' ? api.closedTrades() : null,
-      state.tab === 'tokens' ? api.tokens() : null,
+      (state.tab === 'tokens' || state.tab === 'trending') ? api.tokens() : null,
     ]);
     if (portfolio) {
       state.portfolio = portfolio;
@@ -184,7 +187,32 @@ async function loadTabData() {
     if (trades) state.trades = trades.trades;
     if (closed) state.closedTrades = closed.closedTrades;
     if (tokensResp) {
-      state.tokens = tokensResp.tokens ?? [];
+      // Filtro defensivo: no mostrar tokens cuyo objeto security solo tiene launchpadFeePercentage
+      const filtered = (tokensResp.tokens ?? []).filter((t) => {
+        const security = t?.security;
+        if (!security) return true;
+        const keys = Object.keys(security);
+        if (keys.length === 1 && keys[0] === 'launchpadFeePercentage') return false;
+        const otherKeys = keys.filter((k) => k !== 'launchpadFeePercentage');
+        const hasOtherRealValue = otherKeys.some((k) => {
+          const v = security[k];
+          return v !== undefined && v !== null && v !== '' && v !== false;
+        });
+        return hasOtherRealValue;
+      });
+
+      // Firma ligera: si los datos no cambiaron de forma significativa, salta el render
+      // para evitar parpadeo por innerHTML. Incluye el tab para que cambiar entre
+      // Graduados y Trending force un re-render con el orden correcto.
+      const sig = state.tab + ':' + filtered.map((t) => t.address + '|' + (t.marketCap ?? 0) + '|' + (t.price ?? 0)).join(',');
+      if ((state.tab === 'tokens' || state.tab === 'trending') && sig === lastTokensSignature) {
+        state.tokens = filtered;
+        state.tokensError = null;
+        state.serverError = null;
+        return; // no hay cambios reales: no se toca el DOM, sin parpadeo
+      }
+      lastTokensSignature = sig;
+      state.tokens = filtered;
       state.tokensError = null;
     }
     state.serverError = null;
@@ -293,14 +321,31 @@ function renderView() {
     return;
   }
   viewHost.hidden = false;
+
+  // Pestañas Graduados / Trending: sync incremental del DOM para evitar parpadeo por innerHTML.
+  // Si ya existe el contenedor .token-list, actualizamos solo las filas que cambiaron.
+  if ((state.tab === 'tokens' || state.tab === 'trending') && tokensContainer && viewHost.contains(tokensContainer)) {
+    const displayTokens = state.tab === 'trending' ? [...state.tokens].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)) : state.tokens;
+    syncTokensList(tokensContainer, displayTokens);
+    const countEl = tokensContainer.previousElementSibling?.querySelector('.num');
+    if (countEl) countEl.textContent = displayTokens ? displayTokens.length : 0;
+    return;
+  }
+
   const body = {
     portfolio: renderPortfolio,
     history: renderHistory,
     style: renderStyle,
     tokens: renderTokens,
+    trending: renderTrending,
   }[state.tab]();
   setViewHtml(offline + banner + body);
   hydrateLogos(viewHost);
+
+  // Guardar referencia al contenedor de tokens para futuros sync incrementales
+  if (state.tab === 'tokens' || state.tab === 'trending') {
+    tokensContainer = viewHost.querySelector('.token-list');
+  }
 }
 
 /** Skip identical re-renders so buttons aren't replaced under the cursor during refreshes. */
@@ -638,7 +683,7 @@ function renderTokens() {
   }
   const list = tokens.map((t) => {
     return `
-      <div class="token-row">
+      <div class="token-row" data-address="${escapeHtml(t.address)}">
         <div class="token-main">
           ${avatar(t.symbol || '?', t.chainId, t.address)}
           <div class="token-info">
@@ -658,6 +703,94 @@ function renderTokens() {
       <div class="section-h"><span>Discovered tokens</span><span class="num">${tokens.length}</span></div>
       <div class="token-list">${list}</div>
     </section>`;
+}
+
+// ---------- tokens Trending (mismo feed, ordenado por market cap descendente) ----------
+function renderTrending() {
+  if (state.tokensError) {
+    return `<div class="banner err" role="status">${escapeHtml(state.tokensError)}</div>`;
+  }
+  const tokens = [...(state.tokens || [])].sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0));
+  if (!tokens.length) {
+    return `<div class="empty"><b>No trending tokens yet</b><span>The Mobula discovery feed is connecting. Wait a few seconds for live tokens to appear.</span></div>`;
+  }
+  const list = tokens.map((t) => {
+    return `
+      <div class="token-row" data-address="${escapeHtml(t.address)}">
+        <div class="token-main">
+          ${avatar(t.symbol || '?', t.chainId, t.address)}
+          <div class="token-info">
+            <b class="token-sym">${escapeHtml(t.symbol || '?')}</b>
+            <small class="token-name muted">${escapeHtml(t.name || '')}</small>
+          </div>
+          <button class="token-open" data-act="open-token" data-chain="${escapeHtml(t.chainId || 'solana')}" data-address="${escapeHtml(t.address)}" title="Open ${escapeHtml(t.symbol || '?')} on FOMO">${icons.external(12)}</button>
+        </div>
+        <div class="token-stats">
+          <div class="token-stat"><span class="token-label">Market cap</span><span class="token-value num">${formatCompactUsd(t.marketCap)}</span></div>
+          <div class="token-stat"><span class="token-label">Holders</span><span class="token-value num">${Number(t.holders || 0).toLocaleString()}</span></div>
+        </div>
+      </div>`;
+  }).join('');
+  return `
+    <section class="box pad">
+      <div class="section-h"><span>Trending</span><span class="num">${tokens.length}</span></div>
+      <div class="token-list">${list}</div>
+    </section>`;
+}
+
+// ---------- tokens: sync incremental del DOM (sin parpadeo por innerHTML) ----------
+/** Compara la lista nueva de tokens con las filas ya renderizadas y solo toca lo que cambió:
+ *  - Agrega filas nuevas
+ *  - Actualiza market cap y holders de las existentes
+ *  - Remueve las que ya no están
+ * Así no se destruye el DOM con innerHTML y no hay parpadeo visual. */
+function syncTokensList(container, tokens) {
+  const existingRows = new Map();
+  for (const row of container.querySelectorAll('.token-row')) {
+    const addr = row.dataset.address;
+    if (addr) existingRows.set(addr, row);
+  }
+
+  const newAddresses = new Set(tokens.map((t) => t.address));
+
+  // Remover filas que ya no existen
+  for (const [addr, row] of existingRows) {
+    if (!newAddresses.has(addr)) {
+      row.remove();
+      existingRows.delete(addr);
+    }
+  }
+
+  // Agregar nuevas o actualizar existentes
+  for (const t of tokens) {
+    const row = existingRows.get(t.address);
+    if (row) {
+      // Solo actualizar los valores que cambian: market cap y holders
+      const valueEls = row.querySelectorAll('.token-value');
+      if (valueEls[0]) valueEls[0].textContent = formatCompactUsd(t.marketCap);
+      if (valueEls[1]) valueEls[1].textContent = Number(t.holders || 0).toLocaleString();
+    } else {
+      const newRow = document.createElement('div');
+      newRow.className = 'token-row';
+      newRow.dataset.address = t.address;
+      newRow.innerHTML = `
+        <div class="token-main">
+          ${avatar(t.symbol || '?', t.chainId, t.address)}
+          <div class="token-info">
+            <b class="token-sym">${escapeHtml(t.symbol || '?')}</b>
+            <small class="token-name muted">${escapeHtml(t.name || '')}</small>
+          </div>
+          <button class="token-open" data-act="open-token" data-chain="${escapeHtml(t.chainId || 'solana')}" data-address="${escapeHtml(t.address)}" title="Open ${escapeHtml(t.symbol || '?')} on FOMO">${icons.external(12)}</button>
+        </div>
+        <div class="token-stats">
+          <div class="token-stat"><span class="token-label">Market cap</span><span class="token-value num">${formatCompactUsd(t.marketCap)}</span></div>
+          <div class="token-stat"><span class="token-label">Holders</span><span class="token-value num">${Number(t.holders || 0).toLocaleString()}</span></div>
+        </div>
+      `;
+      container.appendChild(newRow);
+      hydrateLogos(newRow);
+    }
+  }
 }
 
 // ---------- style: competence feedback, not badges ----------
