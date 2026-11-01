@@ -128,7 +128,7 @@ export default function TradeScreen() {
           autoCapitalize="none"
           spellCheck={false}
         />
-        <Text style={styles.hint}>Ejemplo: 2HESvwBr2AWD9rEdHLbcifCxXpJjnGThixT5zEonpump</HintText></TextInput>
+        <Text style={styles.hint}>Ejemplo: 2HESvwBr2AWD9rEdHLbcifCxXpJjnGThixT5zEonpump</Text>
 
         {quote && (
           <View style={styles.quoteRow}>
