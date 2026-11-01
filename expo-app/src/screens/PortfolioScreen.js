@@ -12,6 +12,12 @@ import {
 import { api } from '../services/api.js';
 import { COLORS, FONT } from '../theme.js';
 
+const Loading = () => (
+  <View style={styles.loadingContainer}>
+    <ActivityIndicator size="large" color={COLORS.paper} />
+  </View>
+);
+
 export default function PortfolioScreen() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);

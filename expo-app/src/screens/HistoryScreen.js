@@ -11,6 +11,12 @@ import {
 import { api } from '../services/api.js';
 import { COLORS, FONT } from '../theme.js';
 
+const Loading = () => (
+  <View style={styles.loadingContainer}>
+    <ActivityIndicator size="large" color={COLORS.paper} />
+  </View>
+);
+
 export default function HistoryScreen() {
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
