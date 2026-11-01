@@ -46,7 +46,7 @@
           "icon": "./assets/notification-icon.png",
           "color": "#a896ff",
           "sounds": [
-            "./assets/notification-sound.wav"
+            "./assets/notification_sound.wav"
           ]
         }
       ]
