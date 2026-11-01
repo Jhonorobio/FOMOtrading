@@ -1,25 +1,13 @@
-# Dependencies
 node_modules/
-package-lock.json
-
-# Environment
+.expo/
+*.service-account.json
+*firebase-adminsdk*.json
+*.pem
+*.p8
 .env
-
-# Server data / database
-server/data/*.db
-server/data/*.db-wal
-server/data/*.db-shm
-
-# Logs
 *.log
-server/*.log
-server/server.out.log
-server/server.err.log
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Build / dist
 dist/
 build/
+ios/
+android/
+.expo/
