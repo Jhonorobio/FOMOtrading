@@ -33,12 +33,13 @@
       },
       "package": "com.fomo.papertrading",
       "permissions": [],
-      "googleServicesFile": "./google-services.json"
+
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      ["./plugins/withGoogleServices"],
       [
         "expo-notifications",
         {
