@@ -72,12 +72,6 @@ export default function HistoryScreen() {
   );
 }
 
-const Loading = () => (
-  <View style={styles.loadingContainer}>
-    <ActivityIndicator size="large" color={COLORS.paper} />
-  </View>
-);
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bgPrimary },
   content: { paddingHorizontal: 16, paddingBottom: 24 },
