@@ -549,24 +549,24 @@ async function main() {
         return db - da;
       });
 
-      // Detectar tokens nuevos respecto a los ya guardados
+      // Detectar tokens nuevos: comparar contra DB y memoria (knownAddresses)
       const existing = getGraduatedTokens();
       const existingAddresses = new Set(existing.map((t) => t.address));
-      const newTokens = normalized.filter((t) => !existingAddresses.has(t.address));
+      const knownSet = new Set([...existingAddresses, ...knownAddresses]);
+      const newTokens = normalized.filter((t) => !knownSet.has(t.address));
 
       // Enriquecer con el logo URL de Mobula (cacheado durante fetchMobulaTokens)
       const enriched = normalized.map((t) => ({ ...t, logo: getLogoUrl(t.address) || t.logo }));
 
       // Notificar por Telegram cada token nuevo (solo si ya hay al menos un refresco previo,
       // para no disparar notificación de todos los tokens en el arranque inicial)
-      if (knownAddresses.size > 0) {
+      if (knownAddresses.size > enriched.length && newTokens.length > 0) {
         for (const t of newTokens) {
           const msg = `🚀 <b>Nuevo token en Graduados</b>\n` +
             `Symbol: ${t.symbol}\n` +
             `Name: ${t.name}\n` +
             `Address: <code>${t.address}</code>\n` +
             `Security Score: ${t.securityScore ?? '—'} | Holders: ${t.holders ?? '—'} | MK: ${formatMarketCap(t.marketCap)}\n` +
-            `Market Cap: $${t.marketCap?.toLocaleString() ?? '—'}\n` +
             `<a href="https://fomo.family/tokens/${t.chainId}/${t.address}">FOMO</a> | ` +
             `<a href="https://gmgn.ai/sol/token/${t.address}">GMGN</a> | ` +
             `<a href="https://photon-sol.tinyastro.io/en/lp/${t.address}">PHOTON</a> | ` +
@@ -575,10 +575,12 @@ async function main() {
         }
       }
 
+      // Guardar tokens en la base de datos (idempotente, INSERT OR REPLACE)
+      saveGraduatedTokens(enriched);
+
       // Eliminar tokens que ya no están en el feed de Mobula
       removeStaleGraduatedTokens(enriched.map((t) => t.address));
 
-      saveGraduatedTokens(enriched);
       knownAddresses = new Set(enriched.map((t) => t.address));
       console.log('[server] graduated tokens refreshed:', enriched.length, 'new:', newTokens.length);
     } catch (err) {
