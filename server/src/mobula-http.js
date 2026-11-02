@@ -194,6 +194,13 @@ export async function fetchMobulaTokens() {
     return true;
   });
 
+  // Filtrar por totalHolders >= 100 usando el endpoint de FOMO
+  const holdersMap = await getTopHoldersBatch(filteredTokens);
+  const tokensWithHolders = filteredTokens.filter((t) => {
+    const totalHolders = holdersMap[t.address] ?? 0;
+    return totalHolders >= 100;
+  });
+
   // Cachear logo URLs por address para uso posterior en /api/token-logo
   for (const t of filteredTokens) {
     if (t.logo) {
@@ -201,8 +208,33 @@ export async function fetchMobulaTokens() {
     }
   }
 
-  const tokens = filteredTokens.map((t) => normalizeMobulaToken(t));
+  const tokens = tokensWithHolders.map((t) => normalizeMobulaToken(t));
   return tokens;
+}
+
+/** Consulta el endpoint de FOMO para obtener totalHolders de varios tokens a la vez. */
+async function getTopHoldersBatch(tokens) {
+  if (!tokens.length) return {};
+  const tokensParam = tokens.map((t) => ({
+    address: t.address,
+    networkId: 1399811149, // Solana
+  }));
+  const qs = `tokens=${encodeURIComponent(JSON.stringify(tokensParam))}`;
+  const url = `https://prod-api.fomo.family/hodlers/top?${qs}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return {};
+    const data = await res.json();
+    const result = {};
+    if (data?.responseObject) {
+      for (const item of data.responseObject) {
+        result[item.tokenAddress] = Number(item.totalHolders ?? 0);
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
 }
 
 /** Extrae el array de tokens de la respuesta de Mobula. */
