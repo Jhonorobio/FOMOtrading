@@ -121,8 +121,34 @@ export async function initDb() {
     db = new SQL.Database();
   }
   db.exec(SCHEMA);
+
   initialized = true;
+
+  // Migración: agregar columnas faltantes a tablas existentes (CREATE TABLE IF NOT EXISTS
+  // no las añade si la tabla ya fue creada con un esquema anterior).
+  migrate();
+
   return db;
+}
+
+function colNames(table) {
+  const rows = all(`PRAGMA table_info(${table})`);
+  return rows.map((r) => r.name);
+}
+
+function migrate() {
+  // accounts necesita updated_at (usado por trading.js: getAccount, placeTrade, closePosition...)
+  if (!colNames('accounts').includes('updated_at')) {
+    exec('ALTER TABLE accounts ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
+  }
+  // positions también se lee/actualiza con updated_at en trading.js
+  if (!colNames('positions').includes('updated_at')) {
+    exec('ALTER TABLE positions ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
+  }
+  // profiles ya lo define en el SCHEMA, pero por si acaso tablas preexistentes
+  if (!colNames('profiles').includes('updated_at')) {
+    exec('ALTER TABLE profiles ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
+  }
 }
 
 function requireDb() {
