@@ -196,13 +196,16 @@ export async function fetchMobulaTokens() {
 
     return true;
   });
+  console.log('[mobula-http] After security filter:', filteredTokens.length, 'tokens');
 
   // Filtrar por totalHolders >= 100 usando el endpoint de FOMO
   const holdersMap = await getTopHoldersBatch(filteredTokens);
+  console.log('[mobula-http] Holders map keys:', Object.keys(holdersMap));
   const tokensWithHolders = filteredTokens.filter((t) => {
     const totalHolders = holdersMap[t.address] ?? 0;
     return totalHolders >= 100;
   });
+  console.log('[mobula-http] After holders filter:', tokensWithHolders.length, 'tokens');
 
   // Cachear logo URLs por address para uso posterior en /api/token-logo
   for (const t of filteredTokens) {
