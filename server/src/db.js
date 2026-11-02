@@ -107,6 +107,22 @@ const SCHEMA = `
     photo_url TEXT,
     updated_at INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS graduated_tokens (
+    address TEXT PRIMARY KEY,
+    chain_id TEXT NOT NULL DEFAULT 'solana',
+    symbol TEXT NOT NULL,
+    name TEXT,
+    market_cap_usd REAL,
+    liquidity_usd REAL,
+    holders INTEGER,
+    security_score INTEGER,
+    created_at INTEGER,
+    source TEXT DEFAULT 'mobula',
+    logo TEXT,
+    pool_address TEXT,
+    updated_at INTEGER NOT NULL
+  );
 `;
 
 export async function initDb() {
@@ -219,4 +235,39 @@ export function exec(sql) {
   const d = requireDb();
   d.exec(sql);
   dirty = true;
+}
+
+/* ---------------- graduated tokens (server-cached discovery list) ---------------- */
+
+export function getGraduatedTokens() {
+  const rows = all('SELECT * FROM graduated_tokens ORDER BY created_at DESC');
+  return rows;
+}
+
+export function saveGraduatedTokens(tokens) {
+  const d = requireDb();
+  dirty = true;
+  const now = Date.now();
+  const stmt = d.prepare(
+    'INSERT OR REPLACE INTO graduated_tokens (address, chain_id, symbol, name, market_cap_usd, liquidity_usd, holders, security_score, created_at, source, logo, pool_address, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+  for (const t of tokens || []) {
+    stmt.run([
+      t.address,
+      t.chainId || 'solana',
+      t.symbol,
+      t.name || null,
+      t.marketCap ?? null,
+      t.liquidity ?? null,
+      t.holders ?? null,
+      t.securityScore ?? null,
+      t.createdAt ? new Date(t.createdAt).getTime() : null,
+      t.source || 'mobula',
+      t.logo || null,
+      t.poolAddress || null,
+      now,
+    ]);
+  }
+  stmt.free();
+  return tokens ? tokens.length : 0;
 }

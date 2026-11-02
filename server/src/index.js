@@ -8,7 +8,7 @@ import cors from 'cors';
 
 import './env.js';
 import { signSession, getSessionUser, deleteSession, createSession, verifyAccessCode, ensurePersonalUser } from './auth.js';
-import { initDb, get } from './db.js';
+import { initDb, get, getGraduatedTokens, saveGraduatedTokens } from './db.js';
 import {
   getOrCreateAccount, startAccount, resetAccount, placeTrade, closePosition,
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
@@ -100,23 +100,48 @@ app.get('/api/health', (_req, res) => {
 
 app.get('/api/tokens', async (_req, res, next) => {
   try {
-    console.log('[api/tokens] fetching tokens from Mobula pulse endpoint');
+    // Servir la lista ya filtrada y guardada en el servidor.
+    let tokens = getGraduatedTokens();
+    let count = tokens.length;
+
+    if (count === 0) {
+      // Si aún no hay nada guardado, consultar Mobula, filtrar y guardar
+      // para que las próximas consultas sirvan desde la DB.
+      console.log('[api/tokens] no graduated tokens in DB, fetching from Mobula');
+      const mobulaTokens = await fetchMobulaTokens();
+      const normalized = mobulaTokens.map((t) => normalizeMobulaToken(t));
+      normalized.sort((a, b) => {
+        const da = new Date(a.createdAt || 0).getTime();
+        const db = new Date(b.createdAt || 0).getTime();
+        return db - da;
+      });
+      saveGraduatedTokens(normalized);
+      tokens = normalized;
+      count = tokens.length;
+      console.log('[api/tokens] saved', count, 'tokens to DB');
+    }
+
+    res.json({ tokens, count, source: count > 0 ? 'db' : 'mobula' });
+  } catch (err) {
+    console.error('[api/tokens] error:', err.code, err.message);
+    next(err);
+  }
+});
+
+app.post('/api/tokens/refresh', async (_req, res, next) => {
+  try {
+    console.log('[api/tokens/refresh] fetching tokens from Mobula');
     const mobulaTokens = await fetchMobulaTokens();
-    console.log('[api/tokens] Mobula returned:', mobulaTokens.length, 'tokens');
-
-    // Normalizar tokens de Mobula
     const normalized = mobulaTokens.map((t) => normalizeMobulaToken(t));
-
-    // Ordenar por fecha de creación: más reciente primero (descendente).
     normalized.sort((a, b) => {
       const da = new Date(a.createdAt || 0).getTime();
       const db = new Date(b.createdAt || 0).getTime();
       return db - da;
     });
-
-    res.json({ tokens: normalized, count: normalized.length });
+    saveGraduatedTokens(normalized);
+    res.json({ ok: true, count: normalized.length, tokens: normalized });
   } catch (err) {
-    console.error('[api/tokens] error:', err.code, err.message);
+    console.error('[api/tokens/refresh] error:', err.code, err.message);
     next(err);
   }
 });
@@ -432,6 +457,28 @@ app.use((err, _req, res, _next) => {
 
 async function main() {
   await initDb();
+
+  // Refrescar la lista de graduated tokens al arrancar y cada 5 minutos
+  // para que extensión y app solo consulten la lista ya guardada en el servidor.
+  async function refreshGraduatedTokens() {
+    try {
+      const mobulaTokens = await fetchMobulaTokens();
+      const normalized = mobulaTokens.map((t) => normalizeMobulaToken(t));
+      normalized.sort((a, b) => {
+        const da = new Date(a.createdAt || 0).getTime();
+        const db = new Date(b.createdAt || 0).getTime();
+        return db - da;
+      });
+      saveGraduatedTokens(normalized);
+      console.log('[server] graduated tokens refreshed:', normalized.length);
+    } catch (err) {
+      console.error('[server] failed to refresh graduated tokens:', err.message);
+    }
+  }
+
+  refreshGraduatedTokens();
+  setInterval(refreshGraduatedTokens, 5 * 60 * 1000);
+
   app.listen(PORT, () => {
     console.log(`[server] Paper Terminal server listening on http://localhost:${PORT}`);
     console.log(`[server] JWT_SECRET configured: ${JWT_SECRET ? 'yes' : 'no'}`);
