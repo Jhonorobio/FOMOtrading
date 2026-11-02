@@ -456,6 +456,7 @@ app.post('/api/telegram/test', requireSession, async (_req, res, next) => {
         `Security Score: ${t.securityScore ?? '—'} | Holders: ${t.holders ?? '—'} | MK: ${formatMarketCap(t.marketCap)}\n` +
         `<a href="https://fomo.family/tokens/${t.chainId}/${t.address}">FOMO</a> | ` +
         `<a href="https://gmgn.ai/sol/token/${t.address}">GMGN</a> | ` +
+        `<a href="https://photon-sol.tinyastro.io/en/lp/${t.address}">PHOTON</a> | ` +
         `<a href="paper-terminal://trade/${t.chainId}:${t.address}">App</a>`;
       await sendTelegramMessage(msg);
     }
@@ -568,6 +569,7 @@ async function main() {
             `Market Cap: $${t.marketCap?.toLocaleString() ?? '—'}\n` +
             `<a href="https://fomo.family/tokens/${t.chainId}/${t.address}">FOMO</a> | ` +
             `<a href="https://gmgn.ai/sol/token/${t.address}">GMGN</a> | ` +
+            `<a href="https://photon-sol.tinyastro.io/en/lp/${t.address}">PHOTON</a> | ` +
             `<a href="paper-terminal://trade/${t.chainId}:${t.address}">App</a>`;
           await sendTelegramMessage(msg);
         }
