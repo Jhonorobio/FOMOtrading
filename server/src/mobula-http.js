@@ -161,7 +161,10 @@ export async function fetchMobulaTokens() {
   }
 
   const data = await res.json();
+  console.log('[mobula-http] Mobula raw response keys:', Object.keys(data));
+  console.log('[mobula-http] Mobula raw response sample:', JSON.stringify(data).slice(0, 500));
   const rawTokens = extractTokens(data);
+  console.log('[mobula-http] Mobula extracted', rawTokens.length, 'raw tokens');
 
   // Filtrar tokens cuyo objeto security solo tiene launchpadFeePercentage (y nada más)
   const filteredTokens = rawTokens.filter((t) => {
