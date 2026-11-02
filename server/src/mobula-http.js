@@ -174,6 +174,12 @@ export async function fetchMobulaTokens() {
       return false;
     }
 
+    // Filtrar por securityScore >= 50
+    const score = Number(t.securityScore ?? 0);
+    if (score < 50) {
+      return false;
+    }
+
     // Si tiene otras claves además de launchpadFeePercentage, verificar que al menos una tenga un valor real
     const otherKeys = keys.filter((k) => k !== 'launchpadFeePercentage');
     const hasOtherRealValue = otherKeys.some((k) => {

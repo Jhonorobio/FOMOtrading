@@ -188,11 +188,13 @@ async function loadTabData() {
     if (closed) state.closedTrades = closed.closedTrades;
     if (tokensResp) {
       // Filtro defensivo: no mostrar tokens cuyo objeto security solo tiene launchpadFeePercentage
+      // ni tokens con securityScore menor a 50
       const filtered = (tokensResp.tokens ?? []).filter((t) => {
         const security = t?.security;
         if (!security) return true;
         const keys = Object.keys(security);
         if (keys.length === 1 && keys[0] === 'launchpadFeePercentage') return false;
+        if (Number(t?.securityScore ?? 0) < 50) return false;
         const otherKeys = keys.filter((k) => k !== 'launchpadFeePercentage');
         const hasOtherRealValue = otherKeys.some((k) => {
           const v = security[k];
