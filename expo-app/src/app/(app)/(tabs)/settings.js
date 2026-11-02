@@ -2,10 +2,10 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
-import { api, DEFAULT_SERVER_URL, getServerUrl, setServerUrl } from '../../lib/api';
-import { useSession } from '../../lib/session';
-import { C } from '../../lib/theme';
-import { Screen, Box, Notice, SectionHeader } from '../../components/ui';
+import { api, DEFAULT_SERVER_URL, getServerUrl, setServerUrl } from '../../../lib/api';
+import { useSession } from '../../../lib/session';
+import { C } from '../../../lib/theme';
+import { Screen, Box, Notice, SectionHeader } from '../../../components/ui';
 
 const PRESETS = [1000, 5000, 10000, 25000, 50000, 100000];
 
@@ -23,6 +23,7 @@ export default function SettingsScreen() {
   const [capital, setCapital] = useState(10000);
   const [custom, setCustom] = useState('');
   const [busy, setBusy] = useState(false);
+  const [tgBusy, setTgBusy] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -92,6 +93,18 @@ export default function SettingsScreen() {
     }
   }
 
+  async function telegramTest() {
+    setTgBusy(true);
+    try {
+      await api.telegramTest();
+      flash('Telegram test message sent.', 'ok');
+    } catch (e) {
+      flash(e?.message || 'Telegram test failed', 'err');
+    } finally {
+      setTgBusy(false);
+    }
+  }
+
   return (
     <Screen title="Settings">
       <ScrollView contentContainerStyle={st.scroll}>
@@ -120,6 +133,9 @@ export default function SettingsScreen() {
           />
           <Pressable style={({ pressed }) => [st.btn, { backgroundColor: C.paper, marginTop: 10 }, pressed && st.pressed]} onPress={saveUrl}>
             <Text style={[st.btnText, { color: '#0b0918' }]}>Save URL</Text>
+          </Pressable>
+          <Pressable style={({ pressed }) => [st.btn, { backgroundColor: C.bg3solid, marginTop: 6, opacity: tgBusy ? 0.5 : 1 }, pressed && st.pressed]} onPress={telegramTest} disabled={tgBusy}>
+            <Text style={[st.btnText, { color: C.paper }]}>Test Telegram notification</Text>
           </Pressable>
         </Box>
 

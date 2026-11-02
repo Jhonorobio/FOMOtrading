@@ -20,6 +20,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="style" options={{ title: 'Style' }} />
       <Tabs.Screen name="graduados" options={{ title: 'Graduados' }} />
       <Tabs.Screen name="trending" options={{ title: 'Trending' }} />
+      <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
     </Tabs>
   );
 }

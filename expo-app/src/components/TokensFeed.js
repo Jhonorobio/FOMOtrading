@@ -9,7 +9,7 @@ import Avatar from './Avatar';
 
 const POLL_MS = 500;
 
-export default function TokensFeed({ mode }) {
+export default function TokensFeed({ mode, onTokenPress }) {
   // mode: 'graduados' (newest first) | 'trending' (market cap desc)
   const [tokens, setTokens] = useState(null);
   const [error, setError] = useState('');
@@ -73,26 +73,43 @@ export default function TokensFeed({ mode }) {
             <Text style={k.emptySub}>The Mobula discovery feed is connecting. Wait a few seconds for live tokens to appear.</Text>
           </View>
         )}
-        {list.map((t) => (
-          <View key={t.address} style={k.row}>
-            <Avatar symbol={t.symbol} chainId={t.chainId} address={t.address} size={30} />
-            <View style={k.rowMain}>
-              <Text style={k.rowSymbol}>{t.symbol}</Text>
-              <Text numberOfLines={1} style={k.rowName}>{t.name}</Text>
+        {list.map((t) => {
+          const rowContent = (
+            <>
+              <Avatar symbol={t.symbol} chainId={t.chainId} address={t.address} size={30} />
+              <View style={k.rowMain}>
+                <Text style={k.rowSymbol}>{t.symbol}</Text>
+                <Text numberOfLines={1} style={k.rowName}>{t.name}</Text>
+              </View>
+              <View style={k.stat}>
+                <Text style={k.statLabel}>Security</Text>
+                <Text style={k.statValue}>{t.securityScore != null ? Number(t.securityScore) : '—'}</Text>
+              </View>
+              <View style={k.stat}>
+                <Text style={k.statLabel}>Market cap</Text>
+                <Text style={k.statValue}>{formatCompactUsd(t.marketCap)}</Text>
+              </View>
+              <View style={k.stat}>
+                <Text style={k.statLabel}>Holders</Text>
+                <Text style={k.statValue}>{t.holders != null ? Number(t.holders).toLocaleString('en-US') : '—'}</Text>
+              </View>
+            </>
+          );
+          return (
+            <View key={t.address} style={k.row}>
+              {onTokenPress ? (
+                <Pressable style={k.row} onPress={() => onTokenPress(t)}>
+                  {rowContent}
+                </Pressable>
+              ) : (
+                rowContent
+              )}
+              <Pressable style={({ pressed }) => [k.linkBtn, pressed && k.pressed]} onPress={() => openOnFomo(t)}>
+                <Text style={k.linkText}>↗</Text>
+              </Pressable>
             </View>
-            <Pressable style={({ pressed }) => [k.linkBtn, pressed && k.pressed]} onPress={() => openOnFomo(t)}>
-              <Text style={k.linkText}>↗</Text>
-            </Pressable>
-            <View style={k.stat}>
-              <Text style={k.statLabel}>Market cap</Text>
-              <Text style={k.statValue}>{formatCompactUsd(t.marketCap)}</Text>
-            </View>
-            <View style={k.stat}>
-              <Text style={k.statLabel}>Holders</Text>
-              <Text style={k.statValue}>{t.holders != null ? Number(t.holders).toLocaleString('en-US') : '—'}</Text>
-            </View>
-          </View>
-        ))}
+          );
+        })}
       </Box>
       <Text style={k.foot}>Live feed · new tokens land here automatically</Text>
     </ScrollView>

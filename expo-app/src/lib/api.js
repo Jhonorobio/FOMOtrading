@@ -127,6 +127,7 @@ export const api = {
   accountDelete: () => request('/api/account/delete', { method: 'POST' }),
   saveProfile: (displayName) => request('/api/profile', { method: 'POST', body: { displayName } }),
   consent: () => request('/api/consent', { method: 'POST', body: {} }),
+  telegramTest: () => request('/api/telegram/test', { method: 'POST' }),
   exportText: async (format) => {
     const res = await fetch(`${serverUrlCache}/api/export?format=${format}`, {
       headers: tokenCache ? { Authorization: `Bearer ${tokenCache}` } : {},

@@ -1,9 +1,9 @@
 // TRADE TAB — replica of the side panel Trade view (asset strip + src/components/trade-panel.js).
 // On mobile there is no fomo.family page to read, so the token is entered manually:
 // fomo.family link, DexScreener link, or `chain:address`.
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { api, ApiError, getServerUrl } from '../../../lib/api';
 import { useSession } from '../../../lib/session';
 import { C } from '../../../lib/theme';
@@ -128,6 +128,16 @@ function TradePanel({ me, setMe }) {
   const [presetDraft, setPresetDraft] = useState('');
   const [customPresets, setCustomPresets] = useState({ buy: null, sell: null });
   const addressInput = useRef(null);
+
+  // Auto-load a token when arriving from Graduados / Trending (?ref=chain:address)
+  const searchParams = useLocalSearchParams();
+  useEffect(() => {
+    const ref = searchParams.ref;
+    if (ref) {
+      setRef(String(ref));
+      loadManual();
+    }
+  }, [searchParams.ref]);
 
   const symbol = (quote && quote.symbol) || (token ? token.chain.toUpperCase() : '') || 'token';
   const cash = me?.account?.cashBalance ?? 0;

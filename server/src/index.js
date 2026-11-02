@@ -8,7 +8,7 @@ import cors from 'cors';
 
 import './env.js';
 import { signSession, getSessionUser, deleteSession, createSession, verifyAccessCode, ensurePersonalUser } from './auth.js';
-import { initDb, get, getGraduatedTokens, saveGraduatedTokens } from './db.js';
+import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens } from './db.js';
 import {
   getOrCreateAccount, startAccount, resetAccount, placeTrade, closePosition,
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
@@ -16,7 +16,7 @@ import {
 } from './trading.js';
 import { fetchQuote, fetchTokenLogo, fetchQuotesBatch, telemetryAuthStatus, invalidateAccessToken } from './market-data.js';
 import { setDirectAccessToken, hasCredentials } from './services/telemetry-auth.js';
-import { fetchMobulaTokens, normalizeMobulaToken, getLogoDataUrl } from './mobula-http.js';
+import { fetchMobulaTokens, normalizeMobulaToken, getLogoUrl, getLogoDataUrl } from './mobula-http.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -34,6 +34,36 @@ const STARTING_BALANCE_PRESETS = (process.env.STARTING_BALANCE_PRESETS ?? '1000,
 const MIN_STARTING_BALANCE = Number(process.env.MIN_STARTING_BALANCE ?? 1);
 const MAX_STARTING_BALANCE = Number(process.env.MAX_STARTING_BALANCE ?? 1000000);
 const MINIMUM_AGE = Number(process.env.MINIMUM_AGE ?? 18);
+
+function formatMarketCap(v) {
+  if (v == null || !Number.isFinite(Number(v))) return '—';
+  const n = Number(v);
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(2)}K`;
+  return `$${n.toFixed(2)}`;
+}
+
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
+
+async function sendTelegramMessage(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text,
+        parse_mode: 'HTML',
+        disable_web_page_preview: false,
+      }),
+    });
+  } catch {
+    // silencioso: no debe romper el refresco de tokens
+  }
+}
 
 const app = express();
 app.use(cors());
@@ -110,13 +140,17 @@ app.get('/api/tokens', async (_req, res, next) => {
       console.log('[api/tokens] no graduated tokens in DB, fetching from Mobula');
       const mobulaTokens = await fetchMobulaTokens();
       const normalized = mobulaTokens.map((t) => normalizeMobulaToken(t));
-      normalized.sort((a, b) => {
+      const enriched = normalized.map((t) => ({ ...t, logo: getLogoUrl(t.address) || t.logo }));
+      enriched.sort((a, b) => {
         const da = new Date(a.createdAt || 0).getTime();
         const db = new Date(b.createdAt || 0).getTime();
         return db - da;
       });
-      saveGraduatedTokens(normalized);
-      tokens = normalized;
+      // Eliminar tokens que ya no están en el feed de Mobula
+      removeStaleGraduatedTokens(enriched.map((t) => t.address));
+
+      saveGraduatedTokens(enriched);
+      tokens = enriched;
       count = tokens.length;
       console.log('[api/tokens] saved', count, 'tokens to DB');
     }
@@ -181,6 +215,10 @@ app.get('/api/token-logo', async (req, res, next) => {
   try {
     const { chain, address } = req.query;
     if (!chain || !address) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'chain and address are required.' } });
+    // Primero buscar en la base de datos (graduated_tokens guarda el logo URL de Mobula)
+    const row = get('SELECT logo FROM graduated_tokens WHERE address = ?', [address]);
+    if (row?.logo) return res.json({ dataUrl: row.logo });
+    // Si no está en la DB, intentar obtenerlo de Mobula y convertir a data: URL
     const dataUrl = await getLogoDataUrl(address);
     res.json({ dataUrl: dataUrl || null });
   } catch (err) {
@@ -332,8 +370,17 @@ app.post('/api/account/start', requireSession, async (req, res, next) => {
   try {
     const { startingBalance } = req.body;
     if (!(startingBalance > 0)) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'startingBalance is required.' } });
-    const account = startAccount(req.user.id, Number(startingBalance));
-    res.json({ account });
+    try {
+      const account = startAccount(req.user.id, Number(startingBalance));
+      res.json({ account });
+    } catch (e) {
+      if (e.code === 'ACCOUNT_ALREADY_STARTED') {
+        const acct = getOrCreateAccount(req.user.id);
+        res.json({ account: { id: acct.id, cashBalance: acct.cashBalance, startingBalance: acct.startingBalance, needsSetup: acct.needsSetup } });
+      } else {
+        throw e;
+      }
+    }
   } catch (err) {
     next(err);
   }
@@ -384,6 +431,35 @@ app.post('/api/auth/code', async (req, res, next) => {
     ensurePersonalUser();
     const { token } = createSession(user.id);
     res.json({ sessionToken: token, user: { id: user.id, email: user.email, displayName: user.name, photoUrl: user.photoUrl } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/auth/logout', requireSession, async (req, res) => {
+  const token = extractToken(req);
+  if (token) deleteSession(token);
+  res.json({ ok: true });
+});
+
+app.post('/api/telegram/test', requireSession, async (_req, res, next) => {
+  try {
+    const tokens = getGraduatedTokens();
+    if (tokens.length === 0) {
+      await sendTelegramMessage('🔔 Mensaje de prueba desde Paper Terminal (servidor local). No hay tokens en la lista de graduados.');
+    } else {
+      const t = tokens[0];
+      const msg = `🔔 <b>Mensaje de prueba — Primer token en Graduados</b>\n` +
+        `Symbol: ${t.symbol}\n` +
+        `Name: ${t.name}\n` +
+        `Address: <code>${t.address}</code>\n` +
+        `Security Score: ${t.securityScore ?? '—'} | Holders: ${t.holders ?? '—'} | MK: ${formatMarketCap(t.marketCap)}\n` +
+        `<a href="https://fomo.family/tokens/${t.chainId}/${t.address}">FOMO</a> | ` +
+        `<a href="https://gmgn.ai/sol/token/${t.address}">GMGN</a> | ` +
+        `<a href="paper-terminal://trade/${t.chainId}:${t.address}">App</a>`;
+      await sendTelegramMessage(msg);
+    }
+    res.json({ ok: true, message: 'Mensaje enviado a Telegram' });
   } catch (err) {
     next(err);
   }
@@ -458,8 +534,10 @@ app.use((err, _req, res, _next) => {
 async function main() {
   await initDb();
 
-  // Refrescar la lista de graduated tokens al arrancar y cada 5 minutos
+  // Refrescar la lista de graduated tokens al arrancar y cada 2 segundos
   // para que extensión y app solo consulten la lista ya guardada en el servidor.
+  let knownAddresses = new Set();
+
   async function refreshGraduatedTokens() {
     try {
       const mobulaTokens = await fetchMobulaTokens();
@@ -469,15 +547,45 @@ async function main() {
         const db = new Date(b.createdAt || 0).getTime();
         return db - da;
       });
-      saveGraduatedTokens(normalized);
-      console.log('[server] graduated tokens refreshed:', normalized.length);
+
+      // Detectar tokens nuevos respecto a los ya guardados
+      const existing = getGraduatedTokens();
+      const existingAddresses = new Set(existing.map((t) => t.address));
+      const newTokens = normalized.filter((t) => !existingAddresses.has(t.address));
+
+      // Enriquecer con el logo URL de Mobula (cacheado durante fetchMobulaTokens)
+      const enriched = normalized.map((t) => ({ ...t, logo: getLogoUrl(t.address) || t.logo }));
+
+      // Notificar por Telegram cada token nuevo (solo si ya hay al menos un refresco previo,
+      // para no disparar notificación de todos los tokens en el arranque inicial)
+      if (knownAddresses.size > 0) {
+        for (const t of newTokens) {
+          const msg = `🚀 <b>Nuevo token en Graduados</b>\n` +
+            `Symbol: ${t.symbol}\n` +
+            `Name: ${t.name}\n` +
+            `Address: <code>${t.address}</code>\n` +
+            `Security Score: ${t.securityScore ?? '—'} | Holders: ${t.holders ?? '—'} | MK: ${formatMarketCap(t.marketCap)}\n` +
+            `Market Cap: $${t.marketCap?.toLocaleString() ?? '—'}\n` +
+            `<a href="https://fomo.family/tokens/${t.chainId}/${t.address}">FOMO</a> | ` +
+            `<a href="https://gmgn.ai/sol/token/${t.address}">GMGN</a> | ` +
+            `<a href="paper-terminal://trade/${t.chainId}:${t.address}">App</a>`;
+          await sendTelegramMessage(msg);
+        }
+      }
+
+      // Eliminar tokens que ya no están en el feed de Mobula
+      removeStaleGraduatedTokens(enriched.map((t) => t.address));
+
+      saveGraduatedTokens(enriched);
+      knownAddresses = new Set(enriched.map((t) => t.address));
+      console.log('[server] graduated tokens refreshed:', enriched.length, 'new:', newTokens.length);
     } catch (err) {
       console.error('[server] failed to refresh graduated tokens:', err.message);
     }
   }
 
   refreshGraduatedTokens();
-  setInterval(refreshGraduatedTokens, 5 * 60 * 1000);
+  setInterval(refreshGraduatedTokens, 2000);
 
   app.listen(PORT, () => {
     console.log(`[server] Paper Terminal server listening on http://localhost:${PORT}`);

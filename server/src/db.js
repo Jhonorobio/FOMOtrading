@@ -241,7 +241,20 @@ export function exec(sql) {
 
 export function getGraduatedTokens() {
   const rows = all('SELECT * FROM graduated_tokens ORDER BY created_at DESC');
-  return rows;
+  return rows.map((r) => ({
+    address: r.address,
+    chainId: r.chain_id,
+    symbol: r.symbol,
+    name: r.name,
+    marketCap: r.market_cap_usd,
+    liquidity: r.liquidity_usd,
+    holders: r.holders,
+    securityScore: r.security_score,
+    createdAt: r.created_at != null ? new Date(r.created_at).toISOString() : null,
+    source: r.source,
+    logo: r.logo,
+    poolAddress: r.pool_address,
+  }));
 }
 
 export function saveGraduatedTokens(tokens) {
@@ -270,4 +283,23 @@ export function saveGraduatedTokens(tokens) {
   }
   stmt.free();
   return tokens ? tokens.length : 0;
+}
+
+export function removeStaleGraduatedTokens(validAddresses) {
+  const d = requireDb();
+  dirty = true;
+  const addrList = validAddresses || [];
+  if (addrList.length === 0) {
+    // Si no hay direcciones válidas, borrar todo
+    d.exec('DELETE FROM graduated_tokens');
+    return 0;
+  }
+  // Construir una lista de placeholders para la cláusula NOT IN
+  const placeholders = addrList.map(() => '?').join(',');
+  const stmt = d.prepare(
+    `DELETE FROM graduated_tokens WHERE address NOT IN (${placeholders})`
+  );
+  const info = stmt.run(addrList);
+  stmt.free();
+  return info.changes;
 }
