@@ -8,6 +8,7 @@ import { api } from '../services/api.js';
  * y fallback a la primera letra del símbolo si no hay logo.
  */
 export default function Avatar({ symbol, chainId, address, size = 38 }) {
+  const safeSize = typeof size === 'number' && size > 0 ? size : 38;
   const [logo, setLogo] = useState(null);
   const [loaded, setLoaded] = useState(false);
 
@@ -35,7 +36,7 @@ export default function Avatar({ symbol, chainId, address, size = 38 }) {
   const letter = (symbol || '?').toString().replace(/^\$/, '').slice(0, 1).toUpperCase();
 
   return (
-    <View style={[styles.container, { width: size, height: size, borderRadius: size / 2 }]}>
+    <View style={[styles.container, { width: safeSize, height: safeSize, borderRadius: safeSize / 2 }]}>
       {logo && loaded ? (
         <Image
           source={{ uri: logo }}
@@ -44,7 +45,7 @@ export default function Avatar({ symbol, chainId, address, size = 38 }) {
         />
       ) : (
         <View style={styles.fallback}>
-          <Text style={styles.letter}>{letter}</Text>
+          <Text style={[styles.letter, { fontSize: Math.round(safeSize * 0.4) }]}>{letter}</Text>
         </View>
       )}
     </View>
@@ -70,7 +71,6 @@ const styles = StyleSheet.create({
   },
   letter: {
     color: COLORS.textSecondary,
-    fontSize: Math.round(size * 0.4),
     fontWeight: '700',
     fontFamily: FONT,
   },
