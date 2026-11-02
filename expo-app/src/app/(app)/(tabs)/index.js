@@ -14,7 +14,7 @@ import {
 import { Screen, Box, Notice } from '../../../components/ui';
 import Avatar from '../../../components/Avatar';
 
-const POLL_MS = 2000;
+const POLL_MS = 500;
 const DEFAULT_BUY = [10, 100, 500, 1000];
 const DEFAULT_SELL = [25, 50, 75, 100];
 const FEE_RATE = 0.001;

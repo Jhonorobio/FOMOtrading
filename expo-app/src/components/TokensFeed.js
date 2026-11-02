@@ -7,7 +7,7 @@ import { formatCompactUsd } from '../lib/format';
 import { Box, SectionHeader, Notice } from './ui';
 import Avatar from './Avatar';
 
-const POLL_MS = 2000;
+const POLL_MS = 500;
 
 export default function TokensFeed({ mode }) {
   // mode: 'graduados' (newest first) | 'trending' (market cap desc)
