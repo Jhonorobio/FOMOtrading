@@ -214,7 +214,7 @@ export async function fetchMobulaTokens() {
     }
   }
 
-  const tokens = tokensWithHolders.map((t) => normalizeMobulaToken(t));
+  const tokens = tokensWithHolders.map((t) => normalizeMobulaToken(t, holdersMap[t.address] ?? null));
   return tokens;
 }
 
@@ -295,8 +295,10 @@ function extractTokens(data) {
   return [];
 }
 
-/** Normaliza un token de Mobula al formato que espera la extensión. */
-export function normalizeMobulaToken(t) {
+/** Normaliza un token de Mobula al formato que espera la extensión.
+ *  Si se pasa totalHoldersFromFomo, se usa ese valor en 'holders' (datos reales del filtro de FOMO).
+ */
+export function normalizeMobulaToken(t, totalHoldersFromFomo = null) {
   const marketCap = Number(t.marketCap ?? t.market_cap ?? t.latest_market_cap ?? 0);
   const securityScore = Number(t.securityScore ?? 0);
   const createdAt = t.createdAt ?? t.created_at ?? null;
@@ -309,7 +311,7 @@ export function normalizeMobulaToken(t) {
     price: null,
     marketCap: marketCap > 0 ? marketCap : null,
     liquidity: Number(t.liquidity ?? t.liquidityUsd ?? 0) || null,
-    holders: Number(t.holdersCount ?? t.holders ?? 0) || null,
+    holders: totalHoldersFromFomo ?? Number(t.holdersCount ?? t.holders ?? 0) || null,
     securityScore: securityScore > 0 ? securityScore : null,
     security: t.security ?? null,
     createdAt,
