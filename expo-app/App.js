@@ -23,7 +23,7 @@ const TABS = [
   { name: 'Portfolio', component: PortfolioScreen, icon: 'pie-chart', color: '#a896ff' },
   { name: 'History', component: HistoryScreen, icon: 'list', color: '#a896ff' },
   { name: 'Style', component: StyleScreen, icon: 'bar-chart', color: '#a896ff' },
-  { name: 'Tokens', component: TokensScreen, icon: 'extensions', color: '#a896ff' },
+  { name: 'Tokens', component: TokensScreen, icon: 'cube', color: '#a896ff' },
 ];
 
 export default function App() {
