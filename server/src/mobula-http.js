@@ -198,12 +198,14 @@ export async function fetchMobulaTokens() {
   });
   console.log('[mobula-http] After security filter:', filteredTokens.length, 'tokens');
 
-  // TODO: Reactivar filtro de totalHolders cuando el endpoint de FOMO funcione
-  // const holdersMap = await getTopHoldersBatch(filteredTokens);
-  // const tokensWithHolders = filteredTokens.filter((t) => {
-  //   const totalHolders = holdersMap[t.address] ?? 0;
-  //   return totalHolders >= 100;
-  // });
+  // Filtrar por totalHolders >= 100 usando el endpoint de FOMO (mismo auth que Mobula)
+  const holdersMap = await getTopHoldersBatch(filteredTokens);
+  console.log('[mobula-http] Holders map keys:', Object.keys(holdersMap));
+  const tokensWithHolders = filteredTokens.filter((t) => {
+    const totalHolders = holdersMap[t.address] ?? 0;
+    return totalHolders >= 100;
+  });
+  console.log('[mobula-http] After holders filter:', tokensWithHolders.length, 'tokens');
 
   // Cachear logo URLs por address para uso posterior en /api/token-logo
   for (const t of filteredTokens) {
@@ -212,13 +214,22 @@ export async function fetchMobulaTokens() {
     }
   }
 
-  const tokens = filteredTokens.map((t) => normalizeMobulaToken(t));
+  const tokens = tokensWithHolders.map((t) => normalizeMobulaToken(t));
   return tokens;
 }
 
-/** Consulta el endpoint de FOMO para obtener totalHolders de varios tokens a la vez. */
+/** Consulta el endpoint de FOMO para obtener totalHolders de varios tokens a la vez.
+ *  Usa el mismo token de Mobula (Privy) para autenticarse. */
 async function getTopHoldersBatch(tokens) {
   if (!tokens.length) return {};
+
+  // Obtener token de Mobula via Privy (mismo mecanismo que usa el endpoint de holders)
+  const mobulaToken = await getMobulaAuthToken();
+  if (!mobulaToken) {
+    console.error('[mobula-http] No Mobula token available for holders endpoint');
+    return {};
+  }
+
   const tokensParam = tokens.map((t) => ({
     address: t.address,
     networkId: 1399811149, // Solana
@@ -226,8 +237,19 @@ async function getTopHoldersBatch(tokens) {
   const qs = `tokens=${encodeURIComponent(JSON.stringify(tokensParam))}`;
   const url = `https://prod-api.fomo.family/hodlers/top?${qs}`;
   try {
-    const res = await fetch(url);
-    if (!res.ok) return {};
+    const res = await fetch(url, {
+      headers: {
+        'Accept': 'application/json',
+        'Origin': 'https://fomo.family',
+        'Referer': 'https://fomo.family/',
+        'Cookie': `privy-token=${mobulaToken}; privy-session=privy.fomo.family`,
+        'X-Supported-Chains': '1,56,143,4663,5042,8453,1399811149',
+      },
+    });
+    if (!res.ok) {
+      console.error('[mobula-http] Holders endpoint failed:', res.status);
+      return {};
+    }
     const data = await res.json();
     const result = {};
     if (data?.responseObject) {
@@ -236,7 +258,8 @@ async function getTopHoldersBatch(tokens) {
       }
     }
     return result;
-  } catch {
+  } catch (err) {
+    console.error('[mobula-http] Holders endpoint error:', err.message);
     return {};
   }
 }
