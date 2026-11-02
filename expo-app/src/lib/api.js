@@ -59,8 +59,9 @@ async function request(path, { method = 'GET', body, anonymous = false } = {}) {
       headers,
       body: body != null ? JSON.stringify(body) : undefined,
     });
-  } catch {
-    throw new ApiError(0, 'NETWORK', 'Paper server offline');
+  } catch (e) {
+    if (e instanceof ApiError) throw e;
+    throw new ApiError(0, 'NETWORK', `Paper server offline (${e?.message || 'network error'})`);
   }
   let data = null;
   try {

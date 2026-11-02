@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { useSession } from '../lib/session';
-import { api, ApiError } from '../lib/api';
+import { api, ApiError, signInWithCode, DEFAULT_SERVER_URL, getServerUrl, setServerUrl } from '../lib/api';
 import { C } from '../lib/theme';
 import { Notice } from '../components/ui';
 
@@ -12,18 +12,55 @@ export default function SignIn() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [unlocked, setUnlocked] = useState(false);
+  const [serverOpen, setServerOpen] = useState(false);
+  const [serverDraft, setServerDraft] = useState(getServerUrl());
+  const [serverState, setServerState] = useState(null); // 'ok' | 'err'
+  const [serverMsg, setServerMsg] = useState('');
+
+  async function checkServer() {
+    setServerState(null);
+    setServerMsg('');
+    api
+      .health()
+      .then((d) => {
+        if (d && d.ok) {
+          setServerState('ok');
+          setServerMsg(`Connected · ${getServerUrl().replace(/^https?:\/\//, '')}`);
+        } else {
+          setServerState('err');
+          setServerMsg('Server did not answer /api/health');
+        }
+      })
+      .catch(() => {
+        setServerState('err');
+        setServerMsg(`Cannot reach ${getServerUrl().replace(/^https?:\/\//, '')}`);
+      });
+  }
+
+  async function saveServer() {
+    try {
+      await setServerUrl(serverDraft);
+      setServerState(null);
+      setServerMsg('Saved.');
+      setTimeout(checkServer, 100);
+    } catch (e) {
+      setServerState('err');
+      setServerMsg(e?.message || 'Invalid URL');
+    }
+  }
 
   async function unlock() {
     setErr('');
     setBusy(true);
     try {
-      await api.signInWithCode(code.trim());
+      await signInWithCode(code.trim());
       setUnlocked(true);
       setBusy(false);
       setTimeout(() => signIn('set'), 350);
     } catch (e) {
       setBusy(false);
-      setErr(e instanceof ApiError ? e.message : 'Connection failed');
+      const detail = e?.message || e?.code || 'Connection failed';
+      setErr(`${detail}${e?.code && e?.code !== 'NETWORK' ? ` · ${e.code}` : ''}${e?.status ? ` · HTTP ${e.status}` : ''}`);
     }
   }
 
@@ -62,6 +99,40 @@ export default function SignIn() {
             <Text style={s.ctaText}>{busy ? 'Unlocking…' : 'Unlock account'}</Text>
           </Pressable>
 
+          <Pressable style={({ pressed }) => [s.serverToggle, pressed && s.pressed]} onPress={() => setServerOpen((v) => !v)}>
+            <Text style={s.serverToggleText}>
+              {serverOpen ? '▾' : '▸'} Server: {getServerUrl().replace(/^https?:\/\//, '')}
+            </Text>
+          </Pressable>
+          {serverOpen && (
+            <View style={s.serverPanel}>
+              <TextInput
+                style={s.input}
+                value={serverDraft}
+                onChangeText={setServerDraft}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+                placeholder={DEFAULT_SERVER_URL}
+                placeholderTextColor="#8a8c96"
+              />
+              <View style={s.serverRow}>
+                <Pressable style={({ pressed }) => [s.serverBtn, pressed && s.pressed]} onPress={saveServer}>
+                  <Text style={s.serverBtnText}>Save</Text>
+                </Pressable>
+                <Pressable style={({ pressed }) => [s.serverBtn, pressed && s.pressed]} onPress={checkServer}>
+                  <Text style={s.serverBtnText}>Test</Text>
+                </Pressable>
+              </View>
+              {!!serverMsg && (
+                <Text style={[s.serverMsg, (serverState === 'ok' && { color: C.green }) || (serverState === 'err' && { color: C.red })]}>{serverMsg}</Text>
+              )}
+              <Text style={s.hint}>
+                On your PC run the server (cd server, npm start). From the phone use your PC LAN IP, like http://192.168.0.16:3001 — localhost refers to the phone itself.
+              </Text>
+            </View>
+          )}
+
           <Text style={s.legal}>
             For 18s and over. By continuing you accept our Terms and Privacy policy.
           </Text>
@@ -95,4 +166,11 @@ const s = StyleSheet.create({
   spacer: { flex: 1 },
   footer: { color: C.text3, fontSize: 11, textAlign: 'center', paddingBottom: 6 },
   pressed: { transform: [{ scale: 0.98 }], opacity: 0.9 },
+  serverToggle: { marginTop: 16, paddingVertical: 8 },
+  serverToggleText: { color: C.text2, fontSize: 12, fontWeight: '600' },
+  serverPanel: { marginTop: 8 },
+  serverRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  serverBtn: { height: 34, borderRadius: 8, borderWidth: 1, borderColor: C.lineStrong, backgroundColor: C.bg2, paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center' },
+  serverBtnText: { color: C.text, fontSize: 13, fontWeight: '700' },
+  serverMsg: { marginTop: 8, fontSize: 12, color: C.text2 },
 });
