@@ -11,6 +11,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.fomotrading.app",
       "adaptiveIcon": {
         "backgroundColor": "#060510",
         "foregroundImage": "./assets/android-icon-foreground.png",
