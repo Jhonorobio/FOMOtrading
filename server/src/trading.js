@@ -8,7 +8,7 @@ import { run, all, get } from './db.js';
 import { fetchQuote, fetchQuotesBatch } from './market-data.js';
 
 const FEE_RATE = Number(process.env.FEE_RATE ?? 0.001);
-const SLIPPAGE_RATE = Number(process.env.SLIPPAGE_RATE ?? 0.005);
+const SLIPPAGE_RATE = Number(process.env.SLIPPAGE_RATE ?? 0.20);
 const MIN_TRADE_USD = Number(process.env.MIN_TRADE_USD ?? 5);
 const MAX_TRADE_USD = Number(process.env.MAX_TRADE_USD ?? 100000);
 

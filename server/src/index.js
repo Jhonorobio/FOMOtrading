@@ -26,7 +26,7 @@ if (!JWT_SECRET) {
 }
 
 const FEE_RATE = Number(process.env.FEE_RATE ?? 0.001);
-const SLIPPAGE_RATE = Number(process.env.SLIPPAGE_RATE ?? 0.005);
+const SLIPPAGE_RATE = Number(process.env.SLIPPAGE_RATE ?? 0.20);
 const MIN_TRADE_USD = Number(process.env.MIN_TRADE_USD ?? 5);
 const MAX_TRADE_USD = Number(process.env.MAX_TRADE_USD ?? 100000);
 const STARTING_BALANCE_PRESETS = (process.env.STARTING_BALANCE_PRESETS ?? '1000,5000,10000,25000,50000,100000')
