@@ -31,11 +31,11 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      // Notificaciones push
+      // Notificaciones push (opcional: no bloquea si Firebase no está configurado)
       try {
         await registerForPushNotificationsAsync();
       } catch (err) {
-        console.warn('No se pudo registrar para push notifications:', err.message);
+        console.warn('Push notifications no disponibles:', err.message);
       }
 
       // URL del servidor (cambia aquí si usas otro host, ej. Railway)
