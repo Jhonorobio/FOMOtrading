@@ -311,7 +311,7 @@ export function normalizeMobulaToken(t, totalHoldersFromFomo = null) {
     price: null,
     marketCap: marketCap > 0 ? marketCap : null,
     liquidity: Number(t.liquidity ?? t.liquidityUsd ?? 0) || null,
-    holders: totalHoldersFromFomo ?? Number(t.holdersCount ?? t.holders ?? 0) || null,
+    holders: totalHoldersFromFomo ?? (Number(t.holdersCount ?? t.holders ?? 0) || null),
     securityScore: securityScore > 0 ? securityScore : null,
     security: t.security ?? null,
     createdAt,
