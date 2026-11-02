@@ -69,9 +69,9 @@ export default function TradeScreen() {
   };
 
   const presets = [10, 100, 500, 1000];
-  const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
+  const [selectedPreset, setSelectedPreset] = useState(null);
 
-  const handlePreset = (val: number) => {
+  const handlePreset = (val) => {
     setSelectedPreset(val);
     setAmount(String(val));
   };
