@@ -151,7 +151,7 @@ export function createTradePanel({ root, mode, onUseRealPanel }) {
     statusOpen: false,
     profileOpen: false,
     editingPresets: false,
-    presets: { BUY: [10, 100, 500, 1000], SELL: [25, 50, 75, 100] },
+    presets: { BUY: [10, 100, 500, 1000], SELL: [50, 75, 90, 100] },
     mismatchConfirmed: false,
   };
 
@@ -355,13 +355,23 @@ Total P&L vs ${formatUsd(perf.startingBalance, { decimals: 0 })} start: ${format
       t.setAttribute('aria-selected', String(active));
     });
 
+    // keep USD sell amount in sync with live price while a % preset is active
+    if (state.side === 'SELL' && state.sellPercent && state.position && state.quote) {
+      const pv = positionValue();
+      if (pv > 0) {
+        const usd = (Math.floor(pv * (state.sellPercent / 100) * 100) / 100).toFixed(2);
+        if (state.amount !== usd) state.amount = usd;
+      }
+    }
+
     // amount
     if (el.amount.value !== state.amount) el.amount.value = state.amount;
     const amount = amountNumber();
     el.amountBox.classList.toggle('has-value', amount > 0);
     if (amount > 0 && state.quote) {
       const execPrice = state.quote.priceUsd * (1 + (state.side === 'BUY' ? 1 : -1) * (state.config?.slippageRate || 0));
-      el.hint.textContent = `≈ ${formatQty(amount / execPrice)} ${sym}`;
+      const pct = state.side === 'SELL' && state.sellPercent ? ` · ${state.sellPercent}% of position` : '';
+      el.hint.textContent = `≈ ${formatQty(amount / execPrice)} ${sym}${pct}`;
     } else {
       el.hint.textContent = state.side === 'SELL' && state.sellPercent ? `${state.sellPercent}% of position` : 'Enter amount';
     }

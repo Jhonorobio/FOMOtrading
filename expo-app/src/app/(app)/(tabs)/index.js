@@ -8,7 +8,7 @@ import { api, ApiError, getServerUrl } from '../../../lib/api';
 import { useSession } from '../../../lib/session';
 import { C } from '../../../lib/theme';
 import {
-  formatUsd, formatPrice, formatCompactQty, formatSignedUsd, formatPct,
+  formatUsd, formatPrice, formatCompactQty, formatSignedUsd, formatPct, formatCompactUsd,
   parseTokenRef, shortAddr, formatAge,
 } from '../../../lib/format';
 import { Screen, Box, Notice } from '../../../components/ui';
@@ -16,7 +16,7 @@ import Avatar from '../../../components/Avatar';
 
 const POLL_MS = 500;
 const DEFAULT_BUY = [10, 100, 500, 1000];
-const DEFAULT_SELL = [25, 50, 75, 100];
+const DEFAULT_SELL = [50, 75, 90, 100];
 const FEE_RATE = 0.001;
 
 export default function TradeScreen() {
@@ -194,11 +194,18 @@ function TradePanel({ me, setMe }) {
     }, [token, signedIn, setMe]),
   );
 
-  const amountUsd = amount ? Number(amount) : 0;
   const posQty = position ? Number(position.quantity) : 0;
   const posValue = position ? Number(position.marketValue || posQty * Number(position.currentPrice || 0)) : 0;
 
   const sellPercentFromPreset = sellPercent;
+
+  // while a sell % preset is active, derive the USD amount from the live position value
+  // so it stays in sync with price updates (no extra state needed)
+  const effectiveAmount =
+    side === 'SELL' && sellPercent != null && posValue > 0
+      ? (Math.floor(posValue * (sellPercent / 100) * 100) / 100).toFixed(2)
+      : amount;
+  const amountUsd = effectiveAmount ? Number(effectiveAmount) : 0;
 
   let cta;
   if (!token) {
@@ -273,7 +280,10 @@ function TradePanel({ me, setMe }) {
   })();
 
   const hintRight = (() => {
-    if (side === 'SELL' && sellPercent != null) return `${sellPercent}% of position`;
+    if (side === 'SELL' && sellPercent != null) {
+      const usd = posValue * (sellPercent / 100);
+      return `${sellPercent}% of position${usd ? ` · ≈ ${formatCompactUsd(usd)}` : ''}`;
+    }
     const qty = quote?.priceUsd && amountUsd ? amountUsd / Number(quote.priceUsd) : null;
     return qty && amountUsd ? `≈ ${formatCompactQty(qty)} ${symbol}` : 'Enter amount';
   })();
@@ -358,7 +368,7 @@ function TradePanel({ me, setMe }) {
           <Text style={[styles.dollar, !!amount && { color: C.text }]}>$</Text>
           <TextInput
             style={styles.amountInput}
-            value={amount}
+            value={effectiveAmount}
             onChangeText={(t) => {
               setSellPercent(null);
               setAmount(t.replace(/[^\d.]/g, '').replace(/(\..*?)\..*/g, '$1').slice(0, 12));
@@ -385,7 +395,8 @@ function TradePanel({ me, setMe }) {
                     setAmount(String(p));
                   } else {
                     setSellPercent(p);
-                    setAmount('');
+                    // show the USD value being sold in the amount box (percent wins on submit)
+                    setAmount(posValue > 0 ? (Math.floor(posValue * (p / 100) * 100) / 100).toFixed(2) : '');
                   }
                 }}
                 style={({ pressed }) => [styles.presetBtn, active && styles.presetActive, disabled && styles.presetDisabled, pressed && styles.pressed]}>
@@ -401,7 +412,7 @@ function TradePanel({ me, setMe }) {
             setSellPercent(null);
             if (side === 'BUY') setAmount(String(Math.floor((cash / (1 + FEE_RATE)) * 100) / 100));
             else {
-              setAmount('');
+              setAmount(posValue > 0 ? (Math.floor(posValue * 100) / 100).toFixed(2) : '');
               setSellPercent(100);
             }
           }}
@@ -541,7 +552,7 @@ const styles = StyleSheet.create({
   amountBox: { flexDirection: 'row', alignItems: 'center', height: 72, borderRadius: 12, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.lineStrong, paddingHorizontal: 16, gap: 6 },
   dollar: { color: C.text3, fontSize: 30, fontWeight: '500' },
   amountInput: { flex: 1, color: C.text, fontSize: 30, fontWeight: '500', fontVariant: ['tabular-nums'], padding: 0 },
-  amountHint: { color: C.text3, fontSize: 14, maxWidth: 110 },
+  amountHint: { color: C.text3, fontSize: 14, maxWidth: 150 },
   presetsRow: { flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'center' },
   presetBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 10, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.lineStrong },
   presetActive: { backgroundColor: C.bg3, borderColor: 'rgba(203,208,235,0.16)' },

@@ -7,7 +7,7 @@ export const DEFAULT_SERVER_URL = 'http://localhost:3001';
 export const ADMIN_EMAILS = ['mateeur9944@gmail.com'];
 
 export const DEFAULT_BUY_PRESETS = [10, 100, 500, 1000];
-export const DEFAULT_SELL_PRESETS = [25, 50, 75, 100];
+export const DEFAULT_SELL_PRESETS = [50, 75, 90, 100];
 
 export const QUOTE_REFRESH_MS = 200;
 export const PORTFOLIO_REFRESH_MS = 200;
