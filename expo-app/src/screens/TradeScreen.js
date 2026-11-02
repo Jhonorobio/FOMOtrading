@@ -19,6 +19,7 @@ export default function TradeScreen() {
   const [asset, setAsset] = useState({ chain: 'solana', address: '', symbol: '' });
   const [quote, setQuote] = useState(null);
   const [amount, setAmount] = useState('');
+  const [side, setSide] = useState('BUY'); // 'BUY' | 'SELL'
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
@@ -55,7 +56,6 @@ export default function TradeScreen() {
   const parseAddress = (text) => {
     const t = text.trim();
     if (!t) return { chain: 'solana', address: '', symbol: '' };
-    // Si tiene formato chain:address
     if (t.includes(':')) {
       const [chain, address] = t.split(':');
       return { chain: chain.trim() || 'solana', address: address.trim(), symbol: '' };
@@ -68,7 +68,22 @@ export default function TradeScreen() {
     setQuote(null);
   };
 
-  const placeTrade = async (side) => {
+  const presets = [10, 100, 500, 1000];
+  const [selectedPreset, setSelectedPreset] = useState<number | null>(null);
+
+  const handlePreset = (val: number) => {
+    setSelectedPreset(val);
+    setAmount(String(val));
+  };
+
+  const handleMax = () => {
+    if (!account || !quote) return;
+    const available = account.cashBalance;
+    setAmount(String(Math.floor(available * 100) / 100));
+    setSelectedPreset(null);
+  };
+
+  const placeTrade = async () => {
     if (!account) {
       Alert.alert('Cuenta no iniciada', 'Primero inicia tu cuenta de papel desde Ajustes.');
       return;
@@ -97,6 +112,7 @@ export default function TradeScreen() {
       });
       setMessage(side === 'BUY' ? 'Compra simulada ejecutada' : 'Venta simulada ejecutada');
       setAmount('');
+      setSelectedPreset(null);
       await loadAccount();
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
@@ -113,78 +129,142 @@ export default function TradeScreen() {
       style={styles.container}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Paper Trading</Text>
-        <Text style={styles.headerSub}>Simulado · No hay fondos reales</Text>
-      </View>
-
-      <View style={styles.card}>
-        <Text style={styles.label}>Dirección del token (Solana)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Pega la dirección del memecoin…"
-          value={asset.address}
-          onChangeText={onAddressChange}
-          autoCapitalize="none"
-          spellCheck={false}
-        />
-        <Text style={styles.hint}>Ejemplo: 2HESvwBr2AWD9rEdHLbcifCxXpJjnGThixT5zEonpump</Text>
-
-        {quote && (
-          <View style={styles.quoteRow}>
-            <Avatar symbol={quote.symbol || '?'} chainId={quote.chainId || 'solana'} address={quote.address} size={32} />
-            <View style={styles.quoteInfo}>
-              <Text style={styles.quoteSymbol}>{quote.symbol || '?'}</Text>
-              <Text style={styles.quotePrice}>${Number(quote.priceUsd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 8 })}</Text>
-            </View>
-          </View>
-        )}
-
-        <View style={styles.amountRow}>
-          <Text style={styles.label}>Monto (USD)</Text>
+      {/* Header: buscador */}
+      <View style={styles.searchBar}>
+        <View style={styles.searchInputWrap}>
+          <Text style={styles.searchIcon}>🔍</Text>
           <TextInput
-            style={styles.input}
-            placeholder="100"
-            value={amount}
-            onChangeText={setAmount}
-            keyboardType="numeric"
+            style={styles.searchInput}
+            placeholder="https://fomo.family/tokens/solana/…"
+            value={asset.address}
+            onChangeText={onAddressChange}
+            autoCapitalize="none"
+            spellCheck={false}
           />
         </View>
-
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={[styles.btn, styles.btnBuy]}
-            onPress={() => placeTrade('BUY')}
-            disabled={busy || !account || !asset.address || !quote || !amount}
-          >
-            <Text style={styles.btnText}>COMPRAR</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.btn, styles.btnSell]}
-            onPress={() => placeTrade('SELL')}
-            disabled={busy || !account || !asset.address || !quote || !amount}
-          >
-            <Text style={styles.btnText}>VENDER</Text>
-          </TouchableOpacity>
-        </View>
-
-        {message && (
-          <View style={styles.bannerOk}>
-            <Text style={styles.bannerText}>{message}</Text>
-          </View>
-        )}
+        <TouchableOpacity style={styles.loadBtn} onPress={() => {}}>
+          <Text style={styles.loadBtnText}>Load</Text>
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.label}>Cuenta de papel</Text>
-        <View style={styles.accountRow}>
-          <Text style={styles.accountLabel}>Saldo disponible</Text>
-          <Text style={styles.accountValue}>${account ? account.cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '--'}</Text>
+      <View style={styles.note}>
+        <Text style={styles.noteText}>Or <Text style={styles.noteLink}>open fomo.family</Text> and pick a token. It shows up here automatically.</Text>
+      </View>
+
+      {/* Buy / Sell tabs */}
+      <View style={styles.buySellWrap}>
+        <TouchableOpacity
+          style={[styles.buySellBtn, side === 'BUY' && styles.buySellActive]}
+          onPress={() => setSide('BUY')}
+        >
+          <Text style={[styles.buySellText, side === 'BUY' && styles.buySellTextActive]}>Buy</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.buySellBtn, side === 'SELL' && styles.buySellActive]}
+          onPress={() => setSide('SELL')}
+        >
+          <Text style={[styles.buySellText, side === 'SELL' && styles.buySellTextActive]}>Sell</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Big amount display */}
+      <View style={styles.amountCard}>
+        <View style={styles.amountBig}>
+          <Text style={styles.amountBigCurrency}>$</Text>
+          <Text style={styles.amountBigValue}>{amount ? Number(amount).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0'}</Text>
         </View>
-        <View style={styles.accountRow}>
-          <Text style={styles.accountLabel}>Saldo inicial</Text>
-          <Text style={styles.accountValue}>${account ? account.startingBalance.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '--'}</Text>
+        <View style={styles.amountPlaceholder}>
+          <Text style={styles.amountPlaceholderText}>Enter amount</Text>
         </View>
+      </View>
+
+      {/* Presets */}
+      <View style={styles.presetsRow}>
+        {presets.map((p) => (
+          <TouchableOpacity
+            key={p}
+            style={[styles.presetBtn, selectedPreset === p && styles.presetBtnActive]}
+            onPress={() => handlePreset(p)}
+          >
+            <Text style={[styles.presetText, selectedPreset === p && styles.presetTextActive]}>
+              ${p}
+            </Text>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity
+          style={[styles.presetBtn, selectedPreset === null && styles.presetBtnActive]}
+          onPress={handleMax}
+        >
+          <Text style={[styles.presetText, selectedPreset === null && styles.presetTextActive]}>Max</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.settingsBtn} onPress={() => {}}>
+          <Text style={styles.settingsIcon}>⚙️</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Available balance */}
+      <View style={styles.availableRow}>
+        <Text style={styles.availableText}>
+          {account ? account.cashBalance.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'} available
+        </Text>
+      </View>
+
+      {/* Token selector */}
+      <View style={styles.tokenSelector}>
+        <TouchableOpacity style={styles.tokenSelectorWrap} onPress={() => {}}>
+          <Text style={styles.tokenSelectorText}>Select a token</Text>
+          <Text style={styles.tokenSelectorBadge}>PAPER</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Status bar */}
+      <View style={styles.statusBar}>
+        <View style={styles.statusIconWrap}>
+          <Text style={styles.statusIcon}>📄</Text>
+        </View>
+        <View style={styles.statusTextWrap}>
+          <Text style={styles.statusTitle}>Paper trading - no token selected</Text>
+          <Text style={styles.statusSub}>Simulated fills at live prices - no real funds</Text>
+        </View>
+        <View style={styles.statusChevron}>
+          <Text style={styles.statusChevronText}>▾</Text>
+        </View>
+      </View>
+
+      {/* Quote preview */}
+      {quote && (
+        <View style={styles.quoteRow}>
+          <Avatar symbol={quote.symbol || '?'} chainId={quote.chainId || 'solana'} address={quote.address} size={32} />
+          <View style={styles.quoteInfo}>
+            <Text style={styles.quoteSymbol}>{quote.symbol || '?'}</Text>
+            <Text style={styles.quotePrice}>${Number(quote.priceUsd ?? 0).toLocaleString(undefined, { minimumFractionDigits: 6, maximumFractionDigits: 8 })}</Text>
+          </View>
+        </View>
+      )}
+
+      {/* Message banner */}
+      {message && (
+        <View style={styles.bannerOk}>
+          <Text style={styles.bannerText}>{message}</Text>
+        </View>
+      )}
+
+      {/* Buy / Sell actions */}
+      <View style={styles.actions}>
+        <TouchableOpacity
+          style={[styles.btn, styles.btnBuy]}
+          onPress={() => placeTrade('BUY')}
+          disabled={busy || !account || !asset.address || !quote || !amount}
+        >
+          <Text style={styles.btnText}>COMPRAR</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.btn, styles.btnSell]}
+          onPress={() => placeTrade('SELL')}
+          disabled={busy || !account || !asset.address || !quote || !amount}
+        >
+          <Text style={styles.btnText}>VENDER</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.spacer} />
@@ -195,131 +275,318 @@ export default function TradeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.bgPrimary },
   content: { paddingHorizontal: 16, paddingBottom: 24 },
-  header: {
-    paddingTop: Platform.OS === 'ios' ? 56 : 24,
-    paddingBottom: 16,
-  },
-  headerTitle: {
-    color: COLORS.textPrimary,
-    fontSize: 20,
-    fontWeight: '800',
-    fontFamily: FONT,
-  },
-  headerSub: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    fontFamily: FONT,
-    marginTop: 4,
-  },
-  card: {
-    backgroundColor: COLORS.bgSecondary,
+
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: Platform.OS === 'ios' ? 40 : 20,
+    marginBottom: 12,
+    backgroundColor: '#0a0a12',
+    borderRadius: 12,
+    overflow: 'hidden',
+    height: 48,
     borderWidth: 1,
-    borderColor: COLORS.lineStrong,
-    borderRadius: COLORS.radius,
-    padding: 14,
+    borderColor: 'rgba(203, 208, 235, 0.09)',
+  },
+  searchInputWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  searchIcon: {
+    color: '#9899a3',
+    fontSize: 16,
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#f7f7f7',
+    fontSize: 14,
+    fontFamily: FONT,
+    backgroundColor: 'transparent',
+    paddingVertical: 12,
+  },
+  loadBtn: {
+    backgroundColor: '#12111a',
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    borderLeftWidth: 1,
+    borderLeftColor: 'rgba(203, 208, 235, 0.09)',
+  },
+  loadBtnText: {
+    color: '#f7f7f7',
+    fontWeight: '700',
+    fontSize: 14,
+    fontFamily: FONT,
+  },
+
+  note: {
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
+  noteText: {
+    color: '#9899a3',
+    fontSize: 13,
+    fontFamily: FONT,
+  },
+  noteLink: {
+    color: '#a896ff',
+    fontWeight: '600',
+    fontFamily: FONT,
+  },
+
+  buySellWrap: {
+    flexDirection: 'row',
     marginBottom: 12,
   },
-  label: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
+  buySellBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+    backgroundColor: '#12111a',
+    borderWidth: 1,
+    borderColor: 'rgba(203, 208, 235, 0.09)',
+  },
+  buySellActive: {
+    backgroundColor: '#21c95e',
+    borderColor: 'transparent',
+  },
+  buySellText: {
+    color: '#9899a3',
+    fontWeight: '700',
+    fontSize: 16,
+    fontFamily: FONT,
+  },
+  buySellTextActive: {
+    color: '#060510',
+  },
+
+  amountCard: {
+    backgroundColor: '#12111a',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(203, 208, 235, 0.09)',
+    position: 'relative',
+  },
+  amountBig: {
+    position: 'absolute',
+    top: 16,
+    left: 16,
+  },
+  amountBigCurrency: {
+    color: '#f7f7f7',
+    fontSize: 34,
     fontWeight: '700',
     fontFamily: FONT,
+  },
+  amountBigValue: {
+    color: '#f7f7f7',
+    fontSize: 34,
+    fontWeight: '700',
+    fontFamily: FONT,
+  },
+  amountPlaceholder: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+  },
+  amountPlaceholderText: {
+    color: '#9899a3',
+    fontSize: 14,
+    fontFamily: FONT,
+  },
+
+  presetsRow: {
+    flexDirection: 'row',
+    gap: 8,
     marginBottom: 8,
   },
-  input: {
-    backgroundColor: COLORS.bgTertiarySolid,
+  presetBtn: {
+    width: 64,
+    height: 40,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#12111a',
     borderWidth: 1,
-    borderColor: COLORS.line,
-    borderRadius: COLORS.radiusSm,
-    color: COLORS.textPrimary,
+    borderColor: 'rgba(203, 208, 235, 0.09)',
+  },
+  presetBtnActive: {
+    backgroundColor: '#21c95e',
+    borderColor: 'transparent',
+  },
+  presetText: {
+    color: '#f7f7f7',
+    fontWeight: '700',
+    fontSize: 14,
+    fontFamily: FONT,
+  },
+  presetTextActive: {
+    color: '#060510',
+  },
+  settingsBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#12111a',
+    borderWidth: 1,
+    borderColor: 'rgba(203, 208, 235, 0.09)',
+  },
+  settingsIcon: {
+    fontSize: 18,
+    color: '#9899a3',
+  },
+
+  availableRow: {
+    marginBottom: 12,
+  },
+  availableText: {
+    color: '#f7f7f7',
     fontSize: 15,
+    fontWeight: '700',
     fontFamily: FONT,
-    paddingHorizontal: 12,
-    paddingVertical: 11,
   },
-  hint: {
-    color: COLORS.textTertiary,
+
+  tokenSelector: {
+    marginBottom: 12,
+  },
+  tokenSelectorWrap: {
+    backgroundColor: '#12111a',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(203, 208, 235, 0.09)',
+  },
+  tokenSelectorText: {
+    color: '#f7f7f7',
+    fontSize: 16,
+    fontWeight: '700',
+    fontFamily: FONT,
+  },
+  tokenSelectorBadge: {
+    backgroundColor: '#1a1730',
+    color: '#a896ff',
     fontSize: 11,
+    fontWeight: '700',
     fontFamily: FONT,
-    marginTop: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
+
+  statusBar: {
+    backgroundColor: '#1a1730',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(203, 208, 235, 0.09)',
+  },
+  statusIconWrap: {
+    marginRight: 12,
+  },
+  statusIcon: {
+    fontSize: 20,
+    color: '#a896ff',
+  },
+  statusTextWrap: {
+    flex: 1,
+  },
+  statusTitle: {
+    color: '#f7f7f7',
+    fontSize: 15,
+    fontWeight: '700',
+    fontFamily: FONT,
+  },
+  statusSub: {
+    color: '#9899a3',
+    fontSize: 12,
+    fontFamily: FONT,
+    marginTop: 2,
+  },
+  statusChevron: {
+    justifyContent: 'center',
+  },
+  statusChevronText: {
+    color: '#a896ff',
+    fontSize: 16,
+    fontWeight: '700',
+    fontFamily: FONT,
+  },
+
   quoteRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.line,
+    marginBottom: 12,
   },
   quoteInfo: { marginLeft: 10, minWidth: 0 },
   quoteSymbol: {
-    color: COLORS.textPrimary,
+    color: '#f7f7f7',
     fontSize: 14,
     fontWeight: '700',
     fontFamily: FONT,
   },
   quotePrice: {
-    color: COLORS.textSecondary,
+    color: '#9899a3',
     fontSize: 12,
     fontFamily: FONT,
     marginTop: 2,
   },
-  amountRow: { marginTop: 14 },
+
+  bannerOk: {
+    backgroundColor: 'rgba(33, 201, 94, 0.14)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  bannerText: {
+    color: '#21c95e',
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: FONT,
+  },
+
   actions: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 16,
+    marginBottom: 24,
   },
   btn: {
     flex: 1,
     height: 48,
-    borderRadius: COLORS.radius,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   btnBuy: {
-    backgroundColor: COLORS.green,
+    backgroundColor: '#21c95e',
   },
   btnSell: {
-    backgroundColor: COLORS.red,
+    backgroundColor: '#ff622e',
   },
   btnText: {
-    color: COLORS.bgPrimary,
+    color: '#060510',
     fontSize: 15,
     fontWeight: '800',
     fontFamily: FONT,
   },
-  bannerOk: {
-    backgroundColor: COLORS.greenT,
-    borderRadius: COLORS.radiusSm,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginTop: 10,
-    alignItems: 'center',
-  },
-  bannerText: {
-    color: COLORS.green,
-    fontSize: 12,
-    fontWeight: '700',
-    fontFamily: FONT,
-  },
-  accountRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.line,
-  },
-  accountLabel: {
-    color: COLORS.textSecondary,
-    fontSize: 13,
-    fontFamily: FONT,
-  },
-  accountValue: {
-    color: COLORS.textPrimary,
-    fontSize: 13,
-    fontWeight: '700',
-    fontFamily: FONT,
-  },
+
   spacer: { height: 20 },
 });
