@@ -8,7 +8,7 @@ import cors from 'cors';
 
 import './env.js';
 import { signSession, getSessionUser, deleteSession, createSession, verifyAccessCode, ensurePersonalUser } from './auth.js';
-import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens } from './db.js';
+import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens, getNotifiedGraduatedAddresses, markGraduatedTokensNotified } from './db.js';
 import {
   getOrCreateAccount, startAccount, resetAccount, placeTrade, closePosition,
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
@@ -543,6 +543,10 @@ app.use((err, _req, res, _next) => {
 async function main() {
   await initDb();
 
+  // Sembrar el registro de notificados con lo que ya está en la lista: así los tokens
+  // conocidos no vuelven a notificarse cuando el feed los esquiva y los re-agrega.
+  markGraduatedTokensNotified(getGraduatedTokens().map((t) => t.address));
+
   // Refrescar la lista de graduated tokens al arrancar y cada 2 segundos
   // para que extensión y app solo consulten la lista ya guardada en el servidor.
   let knownAddresses = new Set();
@@ -568,9 +572,13 @@ async function main() {
       const enriched = normalized.map((t) => ({ ...t, logo: getLogoUrl(t.address) || t.logo }));
 
       // Notificar por Telegram cada token nuevo (solo si ya hay al menos un refresco previo,
-      // para no disparar notificación de todos los tokens en el arranque inicial)
+      // para no disparar notificación de todos los tokens en el arranque inicial).
+      // Cada address se notifica UNA SOLA VEZ, registrada en notified_graduated_tokens:
+      // si el token sale y vuelve a entrar al feed, no se vuelve a notificar.
       if (firstRefreshDone && newTokens.length > 0) {
-        for (const t of newTokens) {
+        const alreadyNotified = getNotifiedGraduatedAddresses(newTokens.map((t) => t.address));
+        const pending = newTokens.filter((t) => !alreadyNotified.has(t.address));
+        for (const t of pending) {
           const msg = `🚀 <b>Nuevo token en Graduados</b>\n` +
             `Symbol: ${t.symbol}\n` +
             `Name: ${t.name}\n` +
@@ -581,6 +589,10 @@ async function main() {
             `<a href="https://photon-sol.tinyastro.io/en/lp/${t.address}">PHOTON</a> | ` +
             `<a href="paper-terminal://trade/${t.chainId}:${t.address}">App</a>`;
           await sendTelegramMessage(msg);
+        }
+        if (pending.length) {
+          markGraduatedTokensNotified(pending.map((t) => t.address));
+          console.log('[server] telegram: notified', pending.length, 'new token(s):', pending.map((t) => t.symbol).join(', '));
         }
       }
 

@@ -123,6 +123,11 @@ const SCHEMA = `
     pool_address TEXT,
     updated_at INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS notified_graduated_tokens (
+    address TEXT PRIMARY KEY,
+    notified_at INTEGER NOT NULL
+  );
 `;
 
 export async function initDb() {
@@ -302,4 +307,29 @@ export function removeStaleGraduatedTokens(validAddresses) {
   const info = stmt.run(addrList);
   stmt.free();
   return info.changes;
+}
+
+/* ---------------- notificaciones de Graduados (una sola vez por token) ---------------- */
+
+/** Devuelve el subconjunto de addresses que ya fue notificado por Telegram alguna vez. */
+export function getNotifiedGraduatedAddresses(addresses) {
+  const addrList = addresses || [];
+  if (!addrList.length) return new Set();
+  const placeholders = addrList.map(() => '?').join(',');
+  const rows = all(
+    `SELECT address FROM notified_graduated_tokens WHERE address IN (${placeholders})`,
+    addrList
+  );
+  return new Set(rows.map((r) => r.address));
+}
+
+/** Marca addresses como notificadas (idempotente, persistente entre reinicios). */
+export function markGraduatedTokensNotified(addresses) {
+  const d = requireDb();
+  const now = Date.now();
+  const stmt = d.prepare('INSERT OR IGNORE INTO notified_graduated_tokens (address, notified_at) VALUES (?, ?)');
+  for (const a of addresses || []) stmt.run([a, now]);
+  stmt.free();
+  dirty = true;
+  return (addresses || []).length;
 }
