@@ -151,9 +151,9 @@ async function signOut() {
 // Only these paths may be called through the generic API bridge.
 const ALLOWED = [
   ['GET', /^\/api\/(config|health|me|portfolio|quote|token-logo|price-history|asset-state|trades|closed-trades|tokens)(\?|$)/],
-  ['POST', /^\/api\/(trades|positions\/close|account\/start|account\/reset|account\/delete|profile|consent)$/],
+  ['POST', /^\/api\/(trades|positions\/close|account\/start|account\/reset|account\/delete|profile|consent|telegram\/test)$/],
 ];
-const MUTATIONS = /^\/api\/(trades|positions\/close|account\/start|account\/reset|account\/delete)$/;
+const MUTATIONS = /^\/api\/(trades|positions\/close|account\/start|account\/reset|account\/delete)$/; // telegram/test no toca el portafolio
 
 async function handle(message, sender) {
   switch (message?.type) {

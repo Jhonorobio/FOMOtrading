@@ -48,9 +48,12 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
 
 async function sendTelegramMessage(text) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.warn('[server] Telegram not configured: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the server .env');
+    return;
+  }
   try {
-    await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -60,8 +63,13 @@ async function sendTelegramMessage(text) {
         disable_web_page_preview: false,
       }),
     });
-  } catch {
-    // silencioso: no debe romper el refresco de tokens
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.error('[server] Telegram sendMessage failed:', res.status, body.slice(0, 300));
+    }
+  } catch (err) {
+    // silencioso: no debe romper el refresco de tokens, pero dejamos rastro en el log
+    console.error('[server] Telegram sendMessage error:', err?.message ?? err);
   }
 }
 
@@ -538,6 +546,7 @@ async function main() {
   // Refrescar la lista de graduated tokens al arrancar y cada 2 segundos
   // para que extensión y app solo consulten la lista ya guardada en el servidor.
   let knownAddresses = new Set();
+  let firstRefreshDone = false; // evita notificar todos los tokens en el arranque inicial
 
   async function refreshGraduatedTokens() {
     try {
@@ -560,7 +569,7 @@ async function main() {
 
       // Notificar por Telegram cada token nuevo (solo si ya hay al menos un refresco previo,
       // para no disparar notificación de todos los tokens en el arranque inicial)
-      if (knownAddresses.size > enriched.length && newTokens.length > 0) {
+      if (firstRefreshDone && newTokens.length > 0) {
         for (const t of newTokens) {
           const msg = `🚀 <b>Nuevo token en Graduados</b>\n` +
             `Symbol: ${t.symbol}\n` +
@@ -582,6 +591,7 @@ async function main() {
       removeStaleGraduatedTokens(enriched.map((t) => t.address));
 
       knownAddresses = new Set(enriched.map((t) => t.address));
+      firstRefreshDone = true;
       console.log('[server] graduated tokens refreshed:', enriched.length, 'new:', newTokens.length);
     } catch (err) {
       console.error('[server] failed to refresh graduated tokens:', err.message);

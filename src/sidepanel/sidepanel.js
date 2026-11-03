@@ -63,6 +63,8 @@ const state = {
   profileBusy: false,
   banner: null,
   busy: false,
+  telegramBusy: false,
+  telegramStatus: null,
 };
 
 let tradePanel = null;
@@ -520,6 +522,13 @@ function renderConsentGate() {
 
 const shortAddr = (a) => (a.length > 12 ? `${a.slice(0, 5)}…${a.slice(-4)}` : a);
 
+/** Stat de security score para las tarjetas de token (Graduados/Trending). Verde >= 70, ámbar resto. */
+const securityClassName = (score) => (!score ? 'muted' : score >= 70 ? 'up' : 'warn');
+function securityStat(t) {
+  const score = Number(t?.securityScore ?? 0);
+  return `<div class="token-stat"><span class="token-label">Security</span><span class="token-value num ${securityClassName(score)}">${score ? score : '—'}</span></div>`;
+}
+
 // ---------- shared bits ----------
 function stat(label, value, { cls = '', hint = '', last = false } = {}) {
   return `<div class="stat ${last ? 'last-row' : ''}"><div class="label">${label}</div><div class="value num ${cls}">${value}</div>${hint ? `<div class="hint">${hint}</div>` : ''}</div>`;
@@ -697,6 +706,7 @@ function renderTokens() {
         <div class="token-stats">
           <div class="token-stat"><span class="token-label">Market cap</span><span class="token-value num">${formatCompactUsd(t.marketCap)}</span></div>
           <div class="token-stat"><span class="token-label">Holders</span><span class="token-value num">${Number(t.holders || 0).toLocaleString()}</span></div>
+          ${securityStat(t)}
         </div>
       </div>`;
   }).join('');
@@ -730,6 +740,7 @@ function renderTrending() {
         <div class="token-stats">
           <div class="token-stat"><span class="token-label">Market cap</span><span class="token-value num">${formatCompactUsd(t.marketCap)}</span></div>
           <div class="token-stat"><span class="token-label">Holders</span><span class="token-value num">${Number(t.holders || 0).toLocaleString()}</span></div>
+          ${securityStat(t)}
         </div>
       </div>`;
   }).join('');
@@ -767,10 +778,18 @@ function syncTokensList(container, tokens) {
   for (const t of tokens) {
     const row = existingRows.get(t.address);
     if (row) {
-      // Solo actualizar los valores que cambian: market cap y holders
+      // Solo actualizar los valores que cambian: market cap, holders y security score
       const valueEls = row.querySelectorAll('.token-value');
       if (valueEls[0]) valueEls[0].textContent = formatCompactUsd(t.marketCap);
       if (valueEls[1]) valueEls[1].textContent = Number(t.holders || 0).toLocaleString();
+      const score = Number(t.securityScore ?? 0);
+      if (valueEls[2]) {
+        valueEls[2].textContent = score ? String(score) : '—';
+        valueEls[2].className = `token-value num ${securityClassName(score)}`;
+      } else if (score) {
+        // Filas creadas antes de mostrar el score: insertar el stat sin reconstruir la fila
+        row.querySelector('.token-stats')?.insertAdjacentHTML('beforeend', securityStat(t));
+      }
     } else {
       const newRow = document.createElement('div');
       newRow.className = 'token-row';
@@ -787,6 +806,7 @@ function syncTokensList(container, tokens) {
         <div class="token-stats">
           <div class="token-stat"><span class="token-label">Market cap</span><span class="token-value num">${formatCompactUsd(t.marketCap)}</span></div>
           <div class="token-stat"><span class="token-label">Holders</span><span class="token-value num">${Number(t.holders || 0).toLocaleString()}</span></div>
+          ${securityStat(t)}
         </div>
       `;
       container.appendChild(newRow);
@@ -868,6 +888,13 @@ function renderStyle() {
 
 // ---------- sheets ----------
 let renderedSheetKey = null;
+
+/** Línea de estado reutilizando el estilo del indicador del servidor. */
+function telegramStatusHtml(st) {
+  if (!st) return '';
+  const lead = st.kind === 'ok' ? '<b>Sent.</b> ' : '';
+  return `<div class="server-status ${st.kind}"><span class="dot" aria-hidden="true"></span><span>${lead}${escapeHtml(st.text)}</span></div>`;
+}
 
 function renderSheet({ onlyIfChanged = false } = {}) {
   const slot = app.querySelector('[data-el="sheet"]');
@@ -957,6 +984,17 @@ function renderSheet({ onlyIfChanged = false } = {}) {
               : ''
           }
         </div>
+        ${
+          state.user
+            ? `<div class="group">
+          <div class="toggle-row">
+            <div><b>Telegram</b><small>Sends a test notification using the bot configured on the server.</small></div>
+            <button class="btn sm" data-act="telegram-test" ${state.telegramBusy ? 'disabled' : ''}>${state.telegramBusy ? 'Sending…' : 'Send test'}</button>
+          </div>
+          <div data-el="tgStatus">${telegramStatusHtml(state.telegramStatus)}</div>
+        </div>`
+            : ''
+        }
         <div class="field">
           <label>Paper server</label>
           <div class="server-status ${state.serverError ? 'down' : 'ok'}">
@@ -1048,6 +1086,30 @@ app.addEventListener('click', async (e) => {
       await loadConfig();
       render();
       break;
+    case 'telegram-test': {
+      if (state.telegramBusy || !state.user) break;
+      const btn = app.querySelector('[data-act="telegram-test"]');
+      const statusEl = app.querySelector('[data-el="tgStatus"]');
+      state.telegramBusy = true;
+      if (btn) btn.disabled = true;
+      if (btn) btn.textContent = 'Sending…';
+      if (statusEl) statusEl.innerHTML = '';
+      try {
+        const res = await api.telegramTest();
+        state.telegramStatus = { kind: 'ok', text: res?.message || 'Message sent to Telegram.' };
+      } catch (err) {
+        state.telegramStatus = { kind: 'down', text: err.message };
+      } finally {
+        state.telegramBusy = false;
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Send test';
+        }
+        const el = app.querySelector('[data-el="tgStatus"]');
+        if (el) el.innerHTML = telegramStatusHtml(state.telegramStatus);
+      }
+      break;
+    }
     case 'toggle-profile':
       state.profileOpen = !state.profileOpen;
       renderTopbar();

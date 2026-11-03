@@ -47,6 +47,7 @@ export const api = {
   closedTrades: (filters = {}) => send({ type: 'api', method: 'GET', path: `/api/closed-trades${qs(filters)}` }),
   trade: (body) => send({ type: 'api', method: 'POST', path: '/api/trades', body }),
   closePosition: (body) => send({ type: 'api', method: 'POST', path: '/api/positions/close', body }),
+  telegramTest: () => send({ type: 'api', method: 'POST', path: '/api/telegram/test' }),
   consent: (body) => send({ type: 'api', method: 'POST', path: '/api/consent', body }),
   deleteAccount: () => send({ type: 'api', method: 'POST', path: '/api/account/delete' }),
   updateProfile: (body) => send({ type: 'api', method: 'POST', path: '/api/profile', body }),

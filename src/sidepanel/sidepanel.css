@@ -23,6 +23,7 @@ input, select { font: inherit; color: var(--text-primary); }
 .num { font-variant-numeric: tabular-nums; }
 .up { color: var(--green); }
 .down { color: var(--red); }
+.warn { color: #f5b942; }
 .muted { color: var(--text-secondary); }
 h1, h2, h3, p { margin: 0; }
 
