@@ -8,7 +8,7 @@ import cors from 'cors';
 
 import './env.js';
 import { signSession, getSessionUser, deleteSession, createSession, verifyAccessCode, ensurePersonalUser } from './auth.js';
-import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens, getNotifiedGraduatedAddresses, markGraduatedTokensNotified } from './db.js';
+import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens, getNotifiedGraduatedAddresses, markGraduatedTokensNotified, clearOldNotifiedGraduatedTokens } from './db.js';
 import {
   getOrCreateAccount, startAccount, resetAccount, placeTrade, closePosition,
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
@@ -34,6 +34,13 @@ const STARTING_BALANCE_PRESETS = (process.env.STARTING_BALANCE_PRESETS ?? '1000,
 const MIN_STARTING_BALANCE = Number(process.env.MIN_STARTING_BALANCE ?? 1);
 const MAX_STARTING_BALANCE = Number(process.env.MAX_STARTING_BALANCE ?? 1000000);
 const MINIMUM_AGE = Number(process.env.MINIMUM_AGE ?? 18);
+// Cuánto tiempo se recuerda que un token ya fue notificado (evita duplicados del feed inestable).
+// Pasado ese tiempo, si el token reaparece en el feed se vuelve a notificar.
+const TELEGRAM_NOTIFY_TTL_HOURS = (() => {
+  const n = Number(process.env.TELEGRAM_NOTIFY_TTL_HOURS ?? 24);
+  if (!Number.isFinite(n) || n <= 0) return 24;
+  return n;
+})();
 
 function formatMarketCap(v) {
   if (v == null || !Number.isFinite(Number(v))) return '—';
@@ -567,6 +574,10 @@ async function main() {
       const existingAddresses = new Set(existing.map((t) => t.address));
       const knownSet = new Set([...existingAddresses, ...knownAddresses]);
       const newTokens = normalized.filter((t) => !knownSet.has(t.address));
+
+      // Limpieza del registro de notificados aplicando el TTL del .env
+      const cleanedCount = clearOldNotifiedGraduatedTokens(TELEGRAM_NOTIFY_TTL_HOURS * 3600000);
+      if (cleanedCount > 0) console.log('[server] telegram: expired', cleanedCount, 'notified token(s)');
 
       // Enriquecer con el logo URL de Mobula (cacheado durante fetchMobulaTokens)
       const enriched = normalized.map((t) => ({ ...t, logo: getLogoUrl(t.address) || t.logo }));

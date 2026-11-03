@@ -333,3 +333,14 @@ export function markGraduatedTokensNotified(addresses) {
   dirty = true;
   return (addresses || []).length;
 }
+
+/** Borra del registro de notificados las filas más viejas que maxAgeMs (TTL del .env). */
+export function clearOldNotifiedGraduatedTokens(maxAgeMs) {
+  const d = requireDb();
+  const cutoff = Date.now() - Math.max(0, Number(maxAgeMs) || 0);
+  const stmt = d.prepare('DELETE FROM notified_graduated_tokens WHERE notified_at < ?');
+  const info = stmt.run([cutoff]);
+  stmt.free();
+  dirty = true;
+  return info.changes;
+}
