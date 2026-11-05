@@ -232,8 +232,9 @@ async function getTopHoldersBatch(tokens) {
   // Obtener token de Mobula via Privy (mismo mecanismo que usa el endpoint de holders)
   const mobulaToken = await getMobulaAuthToken();
   if (!mobulaToken) {
-    console.error('[mobula-http] No Mobula token available for holders endpoint');
-    return {};
+    // Lanzar en lugar de devolver {}: un resultado vacío filtraría TODOS los tokens
+    // (holders 0 < 150) y el refresh posterior vaciaría graduated_tokens por completo.
+    throw new Error('FOMO_HOLDERS_FAILED: no Mobula token available for holders endpoint');
   }
 
   const tokensParam = tokens.map((t) => ({
@@ -254,7 +255,8 @@ async function getTopHoldersBatch(tokens) {
     });
     if (!res.ok) {
       console.error('[mobula-http] Holders endpoint failed:', res.status);
-      return {};
+      // Lanzar en lugar de devolver {}: ver comentario sobre el filtro de holders.
+      throw new Error(`FOMO_HOLDERS_FAILED:${res.status}`);
     }
     const data = await res.json();
     const result = {};
@@ -265,8 +267,9 @@ async function getTopHoldersBatch(tokens) {
     }
     return result;
   } catch (err) {
+    if (String(err?.message || err).startsWith('FOMO_HOLDERS_FAILED')) throw err;
     console.error('[mobula-http] Holders endpoint error:', err.message);
-    return {};
+    throw new Error(`FOMO_HOLDERS_FAILED: ${err?.message ?? err}`);
   }
 }
 

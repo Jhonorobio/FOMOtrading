@@ -344,3 +344,20 @@ export function clearOldNotifiedGraduatedTokens(maxAgeMs) {
   dirty = true;
   return info.changes;
 }
+
+/** Desmarca addresses del registro de notificados (rollback si el envío a Telegram falló). */
+export function deleteNotifiedGraduatedTokens(addresses) {
+  const d = requireDb();
+  const stmt = d.prepare('DELETE FROM notified_graduated_tokens WHERE address = ?');
+  for (const a of addresses || []) stmt.run([a]);
+  stmt.free();
+  dirty = true;
+  return (addresses || []).length;
+}
+
+/** Persiste la DB de inmediato (evita perder marcas de notificados entre ticks de 30s). */
+export function flushDb() {
+  if (!dirty) return false;
+  saveDb();
+  return true;
+}

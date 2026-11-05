@@ -8,7 +8,7 @@ import cors from 'cors';
 
 import './env.js';
 import { signSession, getSessionUser, deleteSession, createSession, verifyAccessCode, ensurePersonalUser } from './auth.js';
-import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens, getNotifiedGraduatedAddresses, markGraduatedTokensNotified, clearOldNotifiedGraduatedTokens } from './db.js';
+import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens, getNotifiedGraduatedAddresses, markGraduatedTokensNotified, clearOldNotifiedGraduatedTokens, deleteNotifiedGraduatedTokens, flushDb } from './db.js';
 import {
   getOrCreateAccount, startAccount, resetAccount, placeTrade, closePosition,
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
@@ -37,9 +37,10 @@ const MAX_STARTING_BALANCE = Number(process.env.MAX_STARTING_BALANCE ?? 1000000)
 const MINIMUM_AGE = Number(process.env.MINIMUM_AGE ?? 18);
 // Cuánto tiempo se recuerda que un token ya fue notificado (evita duplicados del feed inestable).
 // Pasado ese tiempo, si el token reaparece en el feed se vuelve a notificar.
+// Default: 168 h (7 días).
 const TELEGRAM_NOTIFY_TTL_HOURS = (() => {
-  const n = Number(process.env.TELEGRAM_NOTIFY_TTL_HOURS ?? 24);
-  if (!Number.isFinite(n) || n <= 0) return 24;
+  const n = Number(process.env.TELEGRAM_NOTIFY_TTL_HOURS ?? 168);
+  if (!Number.isFinite(n) || n <= 0) return 168;
   return n;
 })();
 
@@ -55,10 +56,12 @@ function formatMarketCap(v) {
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
 
+/** Envía un mensaje a Telegram. Devuelve true si el envío triunfó, false si falló
+ * (incluido bot no configurado) — el que llama decide si reintentar o hacer rollback. */
 async function sendTelegramMessage(text) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.warn('[server] Telegram not configured: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the server .env');
-    return;
+    return false;
   }
   try {
     const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -74,10 +77,13 @@ async function sendTelegramMessage(text) {
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       console.error('[server] Telegram sendMessage failed:', res.status, body.slice(0, 300));
+      return false;
     }
+    return true;
   } catch (err) {
     // silencioso: no debe romper el refresco de tokens, pero dejamos rastro en el log
     console.error('[server] Telegram sendMessage error:', err?.message ?? err);
+    return false;
   }
 }
 
@@ -568,14 +574,82 @@ async function main() {
   // Sembrar el registro de notificados con lo que ya está en la lista: así los tokens
   // conocidos no vuelven a notificarse cuando el feed los esquiva y los re-agrega.
   markGraduatedTokensNotified(getGraduatedTokens().map((t) => t.address));
+  flushDb();
 
   // Refrescar la lista de graduated tokens al arrancar y cada 2 segundos
   // para que extensión y app solo consulten la lista ya guardada en el servidor.
   let knownAddresses = new Set();
   let firstRefreshDone = false; // evita notificar todos los tokens en el arranque inicial
 
-  async function refreshGraduatedTokens() {
+  // Guard de reentrancia: un ciclo tarda más de 2s (pulse + holders + 1 llamada a
+  // Telegram por token); sin este guard dos corridas solapadas clasificaban el mismo
+  // token como "nuevo" antes de que la primera lo marcara → mensajes duplicados.
+  let refreshing = false;
+
+  // Cola de reintentos para tokens cuyo envío a Telegram falló (máx. 3 intentos).
+  const MAX_NOTIFY_ATTEMPTS = 3;
+  const notifyRetries = new Map(); // address -> { token, attempts }
+
+  function graduateMessage(t) {
+    return `🚀 <b>Nuevo token en Graduados</b>\n` +
+      `Symbol: ${t.symbol}\n` +
+      `Name: ${t.name}\n` +
+      `Address: <code>${t.address}</code>\n` +
+      `Security Score: ${t.securityScore ?? '—'} | Holders: ${t.holders ?? '—'} | MK: ${formatMarketCap(t.marketCap)}\n` +
+      `<a href="https://fomo.family/tokens/${t.chainId}/${t.address}">FOMO</a> | ` +
+      `<a href="https://gmgn.ai/sol/token/${t.address}">GMGN</a> | ` +
+      `<a href="https://photon-sol.tinyastro.io/en/lp/${t.address}">PHOTON</a> | ` +
+      `<a href="paper-terminal://trade/${t.chainId}:${t.address}">App</a>`;
+  }
+
+  /** Intenta enviar (o reenviar) la notificación de un token. Marca la address
+   * ANTES de enviar para que ningún ciclo solapado la duplique; si falla, registra
+   * un reintento (y al agotar los intentos, desmarca para dejar rastro limpio).
+   * `prevAttempts` es el contador acumulado cuando la llamada viene de la cola. */
+  const notifyGraduatedToken = async function (t, prevAttempts = 0) {
     try {
+      markGraduatedTokensNotified([t.address]);
+      flushDb();
+      const ok = await sendTelegramMessage(graduateMessage(t));
+      if (ok) {
+        console.log('[server] telegram: notified', t.symbol);
+        return true;
+      }
+      const attempts = prevAttempts + 1;
+      if (attempts >= MAX_NOTIFY_ATTEMPTS) {
+        // Agotó reintentos: se desmarca la address (queda registro en el log) y se
+        // abandona — evita un loop infinito si Telegram queda caído por horas.
+        notifyRetries.delete(t.address);
+        deleteNotifiedGraduatedTokens([t.address]);
+        flushDb();
+        console.error('[server] telegram: gave up notifying', t.symbol, 'after', attempts, 'attempts');
+      } else {
+        notifyRetries.set(t.address, { token: t, attempts });
+        console.warn('[server] telegram: send failed for', t.symbol, '- will retry (attempt', attempts, '/', MAX_NOTIFY_ATTEMPTS, ')');
+      }
+      return false;
+    } catch (err) {
+      // Un error inesperado dentro de la notificación no debe romper el ciclo:
+      // igual quedó marcada la address, así que no habrá duplicados al reintentar.
+      console.error('[server] telegram: notify error for', t?.symbol, err?.message ?? err);
+      return false;
+    }
+  };
+
+  /** Reintenta el envío de tokens pendientes de la cola (al inicio de cada ciclo). */
+  async function flushNotifyRetries() {
+    for (const [address, entry] of [...notifyRetries.entries()]) {
+      notifyRetries.delete(address);
+      await notifyGraduatedToken(entry.token, entry.attempts);
+    }
+  }
+
+  async function refreshGraduatedTokens() {
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      await flushNotifyRetries();
+
       const mobulaTokens = await fetchMobulaTokens();
       const normalized = mobulaTokens.map((t) => normalizeMobulaToken(t));
       normalized.sort((a, b) => {
@@ -605,27 +679,19 @@ async function main() {
         const alreadyNotified = getNotifiedGraduatedAddresses(newTokens.map((t) => t.address));
         const pending = newTokens.filter((t) => !alreadyNotified.has(t.address));
         for (const t of pending) {
-          const msg = `🚀 <b>Nuevo token en Graduados</b>\n` +
-            `Symbol: ${t.symbol}\n` +
-            `Name: ${t.name}\n` +
-            `Address: <code>${t.address}</code>\n` +
-            `Security Score: ${t.securityScore ?? '—'} | Holders: ${t.holders ?? '—'} | MK: ${formatMarketCap(t.marketCap)}\n` +
-            `<a href="https://fomo.family/tokens/${t.chainId}/${t.address}">FOMO</a> | ` +
-            `<a href="https://gmgn.ai/sol/token/${t.address}">GMGN</a> | ` +
-            `<a href="https://photon-sol.tinyastro.io/en/lp/${t.address}">PHOTON</a> | ` +
-            `<a href="paper-terminal://trade/${t.chainId}:${t.address}">App</a>`;
-          await sendTelegramMessage(msg);
-        }
-        if (pending.length) {
-          markGraduatedTokensNotified(pending.map((t) => t.address));
-          console.log('[server] telegram: notified', pending.length, 'new token(s):', pending.map((t) => t.symbol).join(', '));
+          // notifyGraduatedToken marca la address antes de enviar: ningún ciclo
+          // solapado puede volver a clasificarla como pendiente.
+          await notifyGraduatedToken(t);
         }
       }
 
       // Guardar tokens en la base de datos (idempotente, INSERT OR REPLACE)
       saveGraduatedTokens(enriched);
 
-      // Eliminar tokens que ya no están en el feed de Mobula
+      // Eliminar tokens que ya no están en el feed de Mobula. Llegar aquí con la
+      // lista vacía solo es posible si el fetch y el endpoint de holders triunfaron:
+      // si cualquiera de los dos falla, el throw de arriba sale por el catch sin
+      // tocar la DB (antes, un fallo de holders vaciaba graduated_tokens entera).
       removeStaleGraduatedTokens(enriched.map((t) => t.address));
 
       knownAddresses = new Set(enriched.map((t) => t.address));
@@ -633,6 +699,8 @@ async function main() {
       console.log('[server] graduated tokens refreshed:', enriched.length, 'new:', newTokens.length);
     } catch (err) {
       console.error('[server] failed to refresh graduated tokens:', err.message);
+    } finally {
+      refreshing = false;
     }
   }
 
