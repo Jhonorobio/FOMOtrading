@@ -17,6 +17,7 @@ import {
 import { fetchQuote, fetchTokenLogo, fetchQuotesBatch, telemetryAuthStatus, invalidateAccessToken } from './market-data.js';
 import { setDirectAccessToken, hasCredentials } from './services/telemetry-auth.js';
 import { fetchMobulaTokens, normalizeMobulaToken, getLogoUrl, getLogoDataUrl } from './mobula-http.js';
+import { setProxyUrl, proxyStatus } from './http-client.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -207,6 +208,7 @@ app.get('/api/config', (_req, res) => {
     maxStartingBalance: MAX_STARTING_BALANCE,
     minimumAge: MINIMUM_AGE,
     marketDataProvider: auth.hasRefreshToken ? 'telemetry' : 'none',
+    proxy: proxyStatus(),
     telemetryAuth: {
       hasRefreshToken: auth.hasRefreshToken,
       hasCachedToken: auth.hasCachedToken,
@@ -236,6 +238,18 @@ app.get('/api/token-logo', async (req, res, next) => {
     // Si no está en la DB, intentar obtenerlo de Mobula y convertir a data: URL
     const dataUrl = await getLogoDataUrl(address);
     res.json({ dataUrl: dataUrl || null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ---------------- outbound proxy (Mobula/FOMO calls) ---------------- */
+
+app.post('/api/proxy', requireSession, async (req, res, next) => {
+  try {
+    const { proxyUrl } = req.body;
+    const status = setProxyUrl(proxyUrl ?? '');
+    res.json({ ok: true, proxy: status });
   } catch (err) {
     next(err);
   }
@@ -519,6 +533,7 @@ function errorToStatus(code) {
     case 'INSUFFICIENT_BALANCE':
       return 403;
     case 'BAD_REQUEST':
+    case 'PROXY_INVALID':
     case 'INVALID_AMOUNT':
     case 'INVALID_PERCENT':
     case 'MIN_TRADE_USD':

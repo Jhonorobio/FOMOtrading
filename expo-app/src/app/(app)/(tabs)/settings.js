@@ -15,6 +15,9 @@ export default function SettingsScreen() {
   const [url, setUrl] = useState(getServerUrl());
   const [health, setHealth] = useState(null); // { ok } | null
   const [healthErr, setHealthErr] = useState('');
+  const [proxy, setProxy] = useState(null); // { enabled, url, source } | null
+  const [proxyUrl, setProxyUrl] = useState('');
+  const [proxyBusy, setProxyBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [noticeKind, setNoticeKind] = useState('pink');
   const [resetOpen, setResetOpen] = useState(false);
@@ -38,6 +41,12 @@ export default function SettingsScreen() {
           setHealthErr(e?.message || 'Server unreachable');
         }
       });
+    api
+      .config()
+      .then((d) => {
+        if (alive) setProxy(d?.proxy ?? null);
+      })
+      .catch(() => {});
     return () => {
       alive = false;
     };
@@ -105,6 +114,33 @@ export default function SettingsScreen() {
     }
   }
 
+  async function saveProxy() {
+    setProxyBusy(true);
+    try {
+      const d = await api.setProxy(proxyUrl.trim());
+      setProxy(d.proxy);
+      setProxyUrl('');
+      flash(d.proxy.enabled ? `Proxy active: ${d.proxy.url}` : 'Proxy off: direct connection.', 'ok');
+    } catch (e) {
+      flash(e?.message || 'Proxy failed', 'err');
+    } finally {
+      setProxyBusy(false);
+    }
+  }
+
+  async function clearProxy() {
+    setProxyBusy(true);
+    try {
+      const d = await api.setProxy('');
+      setProxy(d.proxy);
+      flash('Proxy cleared.', 'ok');
+    } catch (e) {
+      flash(e?.message || 'Proxy failed', 'err');
+    } finally {
+      setProxyBusy(false);
+    }
+  }
+
   return (
     <Screen title="Settings">
       <ScrollView contentContainerStyle={st.scroll}>
@@ -136,6 +172,32 @@ export default function SettingsScreen() {
           </Pressable>
           <Pressable style={({ pressed }) => [st.btn, { backgroundColor: C.bg3solid, marginTop: 6, opacity: tgBusy ? 0.5 : 1 }, pressed && st.pressed]} onPress={telegramTest} disabled={tgBusy}>
             <Text style={[st.btnText, { color: C.paper }]}>Test Telegram notification</Text>
+          </Pressable>
+        </Box>
+
+        <SectionHeader title="Graduados proxy" />
+        <Box>
+          <View style={st.serverRow}>
+            <View style={[st.dot, proxy?.enabled ? { backgroundColor: C.green, shadowColor: C.green } : { backgroundColor: C.text3 }]} />
+            <Text style={st.serverText}>{proxy?.enabled ? `Active (${proxy.source})` : 'Off — direct connection'}</Text>
+          </View>
+          <Text style={st.serverUrl}>{proxy?.url || 'FOMO/Mobula calls go out from the server IP'}</Text>
+          <Text style={st.label}>Proxy URL</Text>
+          <TextInput
+            style={st.input}
+            value={proxyUrl}
+            onChangeText={setProxyUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+            placeholder="http://user:pass@host:port"
+            placeholderTextColor={C.text3}
+          />
+          <Pressable style={({ pressed }) => [st.btn, { backgroundColor: C.paper, marginTop: 10, opacity: proxyBusy ? 0.5 : 1 }, pressed && st.pressed]} onPress={saveProxy} disabled={proxyBusy}>
+            <Text style={[st.btnText, { color: '#0b0918' }]}>Save proxy</Text>
+          </Pressable>
+          <Pressable style={({ pressed }) => [st.btn, { backgroundColor: C.bg3solid, marginTop: 6, opacity: proxyBusy ? 0.5 : 1 }, pressed && st.pressed]} onPress={clearProxy} disabled={proxyBusy}>
+            <Text style={[st.btnText, { color: C.paper }]}>Clear proxy</Text>
           </Pressable>
         </Box>
 

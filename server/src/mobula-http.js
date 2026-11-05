@@ -8,7 +8,13 @@
  * Auth: obtains a fresh Mobula JWT via Privy session refresh endpoint
  * (https://privy.fomo.family/api/v1/sessions) using the refresh token stored
  * in server/data/telemetry-auth.json or MOBULA_REFRESH_TOKEN env var.
+ *
+ * All outbound calls go through the configured proxy when one is active
+ * (see http-client.js) — Railway IPs are blocked by FOMO's endpoints.
  */
+import { proxiedFetch } from './http-client.js';
+
+
 const MOBULA_PULSE_URL = 'https://mobula-api.fomo.family/api/2/pulse';
 const PRIVY_SESSIONS_URL = 'https://privy.fomo.family/api/v1/sessions';
 const PRIVY_APP_ID = 'cm6h485o300n3zj9yl6vpedq7';
@@ -51,7 +57,7 @@ async function getMobulaAuthToken() {
   }
 
   try {
-    const res = await fetch(PRIVY_SESSIONS_URL, {
+    const res = await proxiedFetch(PRIVY_SESSIONS_URL, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -100,7 +106,7 @@ async function fetchLogoAsDataUrl(logoUrl) {
   if (logoDataCache.has(logoUrl)) return logoDataCache.get(logoUrl);
 
   try {
-    const res = await fetch(logoUrl);
+    const res = await proxiedFetch(logoUrl);
     if (!res.ok) return null;
     const buffer = Buffer.from(await res.arrayBuffer());
     const contentType = res.headers.get('content-type') || 'image/png';
@@ -134,7 +140,7 @@ export async function fetchMobulaTokens() {
         sortOrder: 'desc',
         limit: 100,
         filters: {
-          market_cap_diluted: { gte: 50000 },
+          market_cap_diluted: { gte: 40000 },
           created_at_offset: { lte: 604800 },
         },
         includeThesis: true,
@@ -149,7 +155,7 @@ export async function fetchMobulaTokens() {
     'Authorization': `Bearer ${token}`,
   };
 
-  const res = await fetch(MOBULA_PULSE_URL, {
+  const res = await proxiedFetch(MOBULA_PULSE_URL, {
     method: 'POST',
     headers,
     body: JSON.stringify(body),
@@ -203,7 +209,7 @@ export async function fetchMobulaTokens() {
   console.log('[mobula-http] Holders map keys:', Object.keys(holdersMap));
   const tokensWithHolders = filteredTokens.filter((t) => {
     const totalHolders = holdersMap[t.address] ?? 0;
-    return totalHolders >= 100;
+    return totalHolders >= 150;
   });
   console.log('[mobula-http] After holders filter:', tokensWithHolders.length, 'tokens');
 
@@ -237,7 +243,7 @@ async function getTopHoldersBatch(tokens) {
   const qs = `tokens=${encodeURIComponent(JSON.stringify(tokensParam))}`;
   const url = `https://prod-api.fomo.family/hodlers/top?${qs}`;
   try {
-    const res = await fetch(url, {
+    const res = await proxiedFetch(url, {
       headers: {
         'Accept': 'application/json',
         'Origin': 'https://fomo.family',

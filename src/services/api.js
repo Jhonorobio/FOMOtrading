@@ -48,6 +48,7 @@ export const api = {
   trade: (body) => send({ type: 'api', method: 'POST', path: '/api/trades', body }),
   closePosition: (body) => send({ type: 'api', method: 'POST', path: '/api/positions/close', body }),
   telegramTest: () => send({ type: 'api', method: 'POST', path: '/api/telegram/test' }),
+  setProxy: (proxyUrl) => send({ type: 'api', method: 'POST', path: '/api/proxy', body: { proxyUrl } }),
   consent: (body) => send({ type: 'api', method: 'POST', path: '/api/consent', body }),
   deleteAccount: () => send({ type: 'api', method: 'POST', path: '/api/account/delete' }),
   updateProfile: (body) => send({ type: 'api', method: 'POST', path: '/api/profile', body }),

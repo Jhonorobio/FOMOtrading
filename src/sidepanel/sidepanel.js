@@ -1007,6 +1007,26 @@ function renderSheet({ onlyIfChanged = false } = {}) {
           </div>
           <span class="status-text num">${escapeHtml(String(s.serverUrl).replace(/^https?:\/\//, ''))}</span>
         </div>
+        <div class="field">
+          <label>Outbound proxy (Graduados / Mobula)</label>
+          <div class="server-status ${state.config?.proxy?.enabled ? 'ok' : ''}">
+            <span class="dot" aria-hidden="true"></span>
+            <span>${
+              state.config?.proxy?.enabled
+                ? `Active (${escapeHtml(state.config.proxy.source)}): <span class="num">${escapeHtml(state.config.proxy.url || '')}</span>`
+                : 'Off. Calls go out from the server’s own IP.'
+            }</span>
+          </div>
+          ${
+            state.user
+              ? `<input class="input num" data-el="proxyInput" placeholder="http://user:pass@host:port" autocomplete="off" spellcheck="false" />
+          <div class="profile-actions" style="margin-top:8px">
+            <button class="btn sm primary" data-act="save-proxy">Save proxy</button>
+            <button class="btn sm" data-act="clear-proxy">Clear</button>
+          </div>`
+              : ''
+          }
+        </div>
         <div class="actions">
           <button class="btn" data-act="close-sheet">Done</button>
           ${state.user ? `<button class="btn" data-act="signout">${icons.signout(16)} Sign out</button>` : '<span></span>'}
@@ -1108,6 +1128,31 @@ app.addEventListener('click', async (e) => {
         const el = app.querySelector('[data-el="tgStatus"]');
         if (el) el.innerHTML = telegramStatusHtml(state.telegramStatus);
       }
+      break;
+    }
+    case 'save-proxy': {
+      if (!state.user) break;
+      const input = app.querySelector('[data-el="proxyInput"]');
+      try {
+        const res = await api.setProxy(input?.value?.trim() ?? '');
+        state.config = { ...state.config, proxy: res.proxy };
+        flash('ok', res.proxy.enabled ? `Proxy active: ${res.proxy.url}` : 'Proxy off: direct connection.');
+      } catch (err) {
+        flash('err', err.message);
+      }
+      render();
+      break;
+    }
+    case 'clear-proxy': {
+      if (!state.user) break;
+      try {
+        const res = await api.setProxy('');
+        state.config = { ...state.config, proxy: res.proxy };
+        flash('ok', 'Proxy cleared.');
+      } catch (err) {
+        flash('err', err.message);
+      }
+      render();
       break;
     }
     case 'toggle-profile':
