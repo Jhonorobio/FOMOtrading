@@ -26,6 +26,7 @@ const TABS = [
   ['history', 'History'],
   ['style', 'Style'],
   ['tokens', 'Graduados'],
+  ['photon', 'Photon'],
   ['trending', 'Trending'],
 ];
 const STYLE_SAMPLE = 5; // closed trades needed for a confident style read
@@ -44,6 +45,15 @@ const state = {
   closedTrades: null,
   tokens: null,
   tokensError: null,
+  // Photon Graduados (memescope col3): tokens, status y editor de filtros.
+  photonTokens: null,
+  photonStatus: null,
+  photonError: null,
+  photonPanelOpen: false,
+  photonConfig: null,
+  photonConfigError: null,
+  photonSaving: false,
+  photonTestMsg: null, // { ok, text }
   posTab: 'open',
   expandedRow: null,
   filters: { side: '', asset: '', from: '', to: '', scope: 'current' },
@@ -72,6 +82,8 @@ let tradeHost = null;
 let viewHost = null;
 let tokensContainer = null; // referencia al elemento .token-list en el DOM (para sync incremental sin parpadeo)
 let lastTokensSignature = null; // firma ligera para detectar si hay cambios reales
+let photonContainer = null; // igual, para la pestaña Photon
+let lastPhotonSignature = null;
 
 // ---------- bootstrap ----------
 attachPositionHover(app);
@@ -109,7 +121,7 @@ async function init() {
       const wasSignedIn = !!state.user;
       state.user = await getSessionUser();
       if (!!state.user !== wasSignedIn) {
-        Object.assign(state, { portfolio: null, trades: null, closedTrades: null, tokens: null, tokensError: null, tab: 'trade', account: null, needsSetup: false, capital: null, profileOpen: false });
+        Object.assign(state, { portfolio: null, trades: null, closedTrades: null, tokens: null, tokensError: null, photonTokens: null, photonStatus: null, photonError: null, photonPanelOpen: false, photonConfig: null, photonTestMsg: null, tab: 'trade', account: null, needsSetup: false, capital: null, profileOpen: false });
         await loadAccount();
         render();
       }
@@ -123,7 +135,7 @@ async function init() {
     if (tab.active && (info.url || info.status === 'complete')) onTabChange();
   });
   setInterval(() => document.visibilityState === 'visible' && state.user && state.tab === 'portfolio' && loadTabData(), 15000);
-  setInterval(() => document.visibilityState === 'visible' && state.user && state.tab === 'tokens' && loadTabData(), 2000);
+  setInterval(() => document.visibilityState === 'visible' && state.user && (state.tab === 'tokens' || state.tab === 'photon') && loadTabData(), 2000);
 }
 
 /** Is there an active paper account, or does the user still need to choose starting capital? */
@@ -175,12 +187,35 @@ async function loadTabData() {
   if (!state.user || state.needsSetup) return;
   try {
     const needPortfolio = state.tab === 'portfolio' || state.tab === 'style' || !state.portfolio;
-    const [portfolio, trades, closed, tokensResp] = await Promise.all([
+    const [portfolio, trades, closed, tokensResp, photonResp] = await Promise.all([
       needPortfolio ? api.portfolio() : null,
       state.tab === 'history' ? api.trades(historyParams()) : null,
       state.tab === 'portfolio' && state.posTab === 'closed' ? api.closedTrades() : null,
       (state.tab === 'tokens' || state.tab === 'trending') ? api.tokens() : null,
+      state.tab === 'photon' ? api.photonGrads() : null,
     ]);
+    if (photonResp) {
+      // Solo los tokens que están ahora mismo en la columna Graduated; los que
+      // la acaban de dejar (visible:false por 2 pulls ausentes) desaparecen del feed.
+      const filtered = (photonResp.tokens ?? []).filter((t) => {
+        if (t.visible === false) return false;
+        const score = Number(t.securityScore);
+        return !(Number.isFinite(score) && score > 0 && score < 50);
+      });
+      // Firma ligera: saltar el sync del DOM si la lista no cambió de verdad.
+      const sig = filtered.map((t) => t.address + '|' + (t.marketCap ?? 0) + '|' + (t.holders ?? 0)).join(',');
+      if (sig === lastPhotonSignature) {
+        state.photonStatus = photonResp.status ?? null;
+        state.photonTokens = filtered;
+        state.photonError = null;
+        state.serverError = null;
+        return; // sin cambios reales: no se toca el DOM (y el editor de filtros intacto)
+      }
+      lastPhotonSignature = sig;
+      state.photonTokens = filtered;
+      state.photonStatus = photonResp.status ?? null;
+      state.photonError = null;
+    }
     if (portfolio) {
       state.portfolio = portfolio;
       state.account = portfolio.account;
@@ -227,6 +262,7 @@ async function loadTabData() {
       return render();
     } else {
       if (state.tab === 'tokens') state.tokensError = err.message;
+      else if (state.tab === 'photon') state.photonError = err.message;
       else flash('err', err.message);
     }
   }
@@ -335,12 +371,20 @@ function renderView() {
     if (countEl) countEl.textContent = displayTokens ? displayTokens.length : 0;
     return;
   }
+  // Pestaña Photon: mismo sync incremental (el editor de filtros no se reconstruye).
+  if (state.tab === 'photon' && photonContainer && viewHost.contains(photonContainer)) {
+    syncPhotonList(photonContainer, state.photonTokens || []);
+    const countEl = photonContainer.previousElementSibling?.querySelector('.num');
+    if (countEl) countEl.textContent = (state.photonTokens || []).length;
+    return;
+  }
 
   const body = {
     portfolio: renderPortfolio,
     history: renderHistory,
     style: renderStyle,
     tokens: renderTokens,
+    photon: renderPhoton,
     trending: renderTrending,
   }[state.tab]();
   setViewHtml(offline + banner + body);
@@ -349,6 +393,9 @@ function renderView() {
   // Guardar referencia al contenedor de tokens para futuros sync incrementales
   if (state.tab === 'tokens' || state.tab === 'trending') {
     tokensContainer = viewHost.querySelector('.token-list');
+  }
+  if (state.tab === 'photon') {
+    photonContainer = viewHost.querySelector('.token-list');
   }
 }
 
@@ -815,6 +862,184 @@ function syncTokensList(container, tokens) {
   }
 }
 
+// ---------- photon: columna Graduated de Photon (col3) con filtros ----------
+const PHOTON_FIELDS = [
+  ['mktCap', 'MK (miles $)'],
+  ['holders', 'Holders'],
+  ['tpHolders', 'TP holders'],
+  ['age', 'Edad (min)'],
+  ['buys', 'Compras'],
+  ['topHolders', 'Top holders %'],
+  ['bundlePct', 'Bundle %'],
+  ['bundleHolders', 'Bundle holders'],
+  ['freshPct', 'Fresh %'],
+];
+
+function photonRowTemplate(t) {
+  return `
+    <div class="token-row" data-address="${escapeHtml(t.address)}">
+      <div class="token-main">
+        ${avatar(t.symbol || '?', t.chainId, t.address)}
+        <div class="token-info">
+          <b class="token-sym">${escapeHtml(t.symbol || '?')}</b>
+          <small class="token-name muted">${escapeHtml(t.name || '')}</small>
+        </div>
+        <button class="token-open" data-act="open-token" data-chain="${escapeHtml(t.chainId || 'solana')}" data-address="${escapeHtml(t.address)}" title="Open ${escapeHtml(t.symbol || '?')} on FOMO">${icons.external(12)}</button>
+      </div>
+      <div class="token-stats">
+        <div class="token-stat"><span class="token-label">Market cap</span><span class="token-value num">${formatCompactUsd(t.marketCap)}</span></div>
+        <div class="token-stat"><span class="token-label">Holders</span><span class="token-value num">${Number(t.holders || 0).toLocaleString()}</span></div>
+        <div class="token-stat"><span class="token-label">Buys</span><span class="token-value num">${t.buys != null ? Number(t.buys).toLocaleString() : '—'}</span></div>
+      </div>
+    </div>`;
+}
+
+function photonStatusText(status) {
+  const parts = [];
+  if (status?.enabled === false) parts.push('POLLER PAUSADO');
+  if (status?.transport) parts.push(`vía ${status.transport}`);
+  if (status?.unauthorized) parts.push('cookie _photon_ta vencida');
+  if (status?.lastError && Date.now() - status.lastError.at < 15000) parts.push(`err: ${status.lastError.message}`);
+  else if (Number(status?.backoffRemainingMs) > 0) parts.push(`backoff ${Math.ceil(status.backoffRemainingMs / 1000)}s`);
+  return parts.join(' · ') || 'poller OK';
+}
+
+function renderPhoton() {
+  if (state.photonError) {
+    return `<div class="banner err" role="status">${escapeHtml(state.photonError)}</div>`;
+  }
+  const tokens = state.photonTokens || [];
+  const list = tokens.map(photonRowTemplate).join('');
+  const statusLine = state.photonStatus
+    ? `<p class="fine num" data-el="photonStatus">${escapeHtml(photonStatusText(state.photonStatus))}</p>`
+    : '';
+  const emptyBlock = `<div class="empty"><b>Sin tokens todavía</b><span>Esperando el pull de la columna Graduated de Photon (1.3s)…</span></div>`;
+  return `
+    <section class="box pad">
+      <div class="section-h">
+        <span>Photon Graduados</span>
+        <span style="display:flex;align-items:center;gap:10px">
+          <span class="num">${tokens.length}</span>
+          <button class="btn sm" data-act="photon-filters">${state.photonPanelOpen ? 'Cerrar' : 'Filtros'}</button>
+        </span>
+      </div>
+      ${statusLine}
+      ${state.photonTestMsg ? `<div class="banner ${state.photonTestMsg.ok ? 'ok' : 'err'}" role="status">${escapeHtml(state.photonTestMsg.text)}</div>` : ''}
+      ${state.photonPanelOpen ? renderPhotonEditor() : ''}
+      ${tokens.length ? `<div class="token-list">${list}</div>` : emptyBlock}
+    </section>`;
+}
+
+function renderPhotonEditor() {
+  const cfg = state.photonConfig;
+  const draft = state.photonDraft ?? {};
+  const val = (key, side) => {
+    const typed = draft[key]?.[side];
+    if (typed != null) return escapeHtml(String(typed));
+    const stored = cfg?.filters?.col3?.[key]?.[side];
+    return stored != null ? escapeHtml(String(stored)) : '';
+  };
+  const rows = PHOTON_FIELDS.map(([key, label]) => `
+    <div class="field photon-f-row">
+      <label>${escapeHtml(label)}</label>
+      <div class="photon-f-inputs">
+        <input class="input num" data-photon-field="${key}" data-side="min" placeholder="mín" value="${val(key, 'min')}" autocomplete="off" spellcheck="false" />
+        <input class="input num" data-photon-field="${key}" data-side="max" placeholder="máx" value="${val(key, 'max')}" autocomplete="off" spellcheck="false" />
+      </div>
+    </div>`).join('');
+  const enabled = cfg ? cfg.enabled !== false : true;
+  return `
+    <div class="group photon-panel">
+      <div class="toggle-row">
+        <div><b>Poller</b><small>${escapeHtml((cfg?.updated_at ?? '') ? `Actualizado ${escapeHtml(cfg.updated_at)}` : 'Se activa con ≥1 filtro o deja la columna completa')}</small></div>
+        <span style="display:flex;gap:6px">
+          <button class="btn sm ${enabled ? 'primary' : ''}" data-act="photon-enabled" data-value="true">Activado</button>
+          <button class="btn sm ${!enabled ? 'primary' : ''}" data-act="photon-enabled" data-value="false">Pausado</button>
+        </span>
+      </div>
+      ${rows}
+      <div class="field">
+        <label>Proxy propio (vacío = el proxy compartido de Settings; sin nada = directo)</label>
+        <input class="input num" data-el="photonProxy" placeholder="http://user:pass@host:port" autocomplete="off" spellcheck="false"
+          value="${escapeHtml(String(state.photonDraftProxy ?? cfg?.proxy ?? ''))}" />
+        <div class="field" style="margin-top:8px">
+          <label>Cookie _photon_ta (vacío = la del server; si Photon contesta "Unauthorized", pega la nueva de DevTools en photon-sol.tinyastro.io)</label>
+          <input class="input num" data-el="photonTa" placeholder="v1:...==--..." autocomplete="off" spellcheck="false"
+            value="${escapeHtml(String(state.photonDraftTa ?? cfg?.ta ?? ''))}" />
+        </div>
+        <div class="profile-actions" style="margin-top:8px">
+          <button class="btn sm" data-act="photon-proxy-test">Probar</button>
+          <button class="btn sm" data-act="photon-clear">Limpiar filtros</button>
+          <button class="btn sm primary" data-act="photon-save">Guardar</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+/** Levanta los valores escritos del editor sin guardarlos (para guardar o probar). */
+function readPhotonEditorValues() {
+  const filters = {};
+  for (const input of app.querySelectorAll('[data-photon-field]')) {
+    const key = input.dataset.photonField;
+    const side = input.dataset.side;
+    const value = String(input.value ?? '').trim() ? String(input.value).trim() : null;
+    if (!filters[key]) filters[key] = {};
+    if (value) filters[key][side] = value;
+  }
+  state.photonDraft = filters; // conserva lo escrito aunque el panel se re-renderice
+  const proxyInput = app.querySelector('[data-el="photonProxy"]');
+  if (proxyInput) state.photonDraftProxy = String(proxyInput.value ?? '').trim();
+  const taInput = app.querySelector('[data-el="photonTa"]');
+  if (taInput) state.photonDraftTa = String(taInput.value ?? '').trim();
+  const clean = {};
+  for (const [key] of PHOTON_FIELDS) {
+    if (filters[key]?.min || filters[key]?.max) clean[key] = filters[key];
+  }
+  return clean;
+}
+
+async function loadPhotonConfig() {
+  try {
+    const d = await api.photonGradsConfig();
+    state.photonConfig = d.config;
+    state.photonConfigError = null;
+  } catch (err) {
+    state.photonConfigError = err.message;
+  }
+}
+
+/** Sync incremental de la lista Photon (mismas reglas que syncTokensList). */
+function syncPhotonList(container, tokens) {
+  const existingRows = new Map();
+  for (const row of container.querySelectorAll('.token-row')) {
+    const addr = row.dataset.address;
+    if (addr) existingRows.set(addr, row);
+  }
+  const fresh = new Set(tokens.map((t) => t.address));
+  for (const [addr, row] of existingRows) {
+    if (!fresh.has(addr)) {
+      row.remove();
+      existingRows.delete(addr);
+    }
+  }
+  for (const t of tokens) {
+    const row = existingRows.get(t.address);
+    if (row) {
+      const valueEls = row.querySelectorAll('.token-value');
+      if (valueEls[0]) valueEls[0].textContent = formatCompactUsd(t.marketCap);
+      if (valueEls[1]) valueEls[1].textContent = Number(t.holders || 0).toLocaleString();
+      if (valueEls[2]) valueEls[2].textContent = t.buys != null ? Number(t.buys).toLocaleString() : '—';
+    } else {
+      const newRow = document.createElement('div');
+      newRow.className = 'token-row';
+      newRow.dataset.address = t.address;
+      newRow.innerHTML = photonRowTemplate(t);
+      container.appendChild(newRow);
+      hydrateLogos(newRow);
+    }
+  }
+}
+
 // ---------- style: competence feedback, not badges ----------
 function renderStyle() {
   const p = state.portfolio;
@@ -1005,7 +1230,13 @@ function renderSheet({ onlyIfChanged = false } = {}) {
                 : `Connected, market data from ${escapeHtml(state.config?.marketDataProvider || 'the server')}`
             }</span>
           </div>
-          <span class="status-text num">${escapeHtml(String(s.serverUrl).replace(/^https?:\/\//, ''))}</span>
+          <input class="input num" data-el="serverInput" placeholder="https://mi-server.up.railway.app" autocomplete="off" spellcheck="false"
+            value="${escapeHtml(String(s.serverUrl))}" />
+          <div class="profile-actions" style="margin-top:8px">
+            <button class="btn sm primary" data-act="save-server">Save server</button>
+            <button class="btn sm" data-act="reset-server">Default</button>
+          </div>
+          <p class="fine">Sign-out and re-lock happen when the server changes: your session belongs to the server you signed in on.</p>
         </div>
         <div class="field">
           <label>Outbound proxy (Graduados / Mobula)</label>
@@ -1106,6 +1337,40 @@ app.addEventListener('click', async (e) => {
       await loadConfig();
       render();
       break;
+    // ── Paper server URL (editable in Settings) ──
+    case 'save-server': {
+      const input = app.querySelector('[data-el="serverInput"]');
+      const raw = String(input?.value ?? '').trim().replace(/\/+$/, '');
+      if (!/^https?:\/\/\S+$/.test(raw)) {
+        flash('err', 'La URL debe empezar por http:// o https://');
+        renderView();
+        break;
+      }
+      const before = String(state.settings?.serverUrl ?? '');
+      state.settings = await updateSettings({ serverUrl: raw });
+      const saved = String(state.settings?.serverUrl ?? '');
+      if (saved === before) {
+        flash('ok', 'Server guardado: sin cambios.');
+      } else {
+        // La sesión vive en el server de origen: al cambiar de server, fuera.
+        await chrome.storage.local.remove('session');
+        state.user = await getSessionUser();
+        await loadConfig();
+        render();
+        const upgraded = /^http:\/\//i.test(raw) ? ' (subido a https:// — Chrome bloquea http para hosts externos)' : '';
+        flash('ok', `Server cambiado a ${saved}${upgraded}. Inicia sesión de nuevo.`);
+      }
+      break;
+    }
+    case 'reset-server': {
+      state.settings = await updateSettings({ serverUrl: '' });
+      await chrome.storage.local.remove('session');
+      state.user = await getSessionUser();
+      await loadConfig();
+      render();
+      flash('ok', `Server restaurado al de fábrica: ${state.settings.serverUrl}`);
+      break;
+    }
     case 'telegram-test': {
       if (state.telegramBusy || !state.user) break;
       const btn = app.querySelector('[data-act="telegram-test"]');
@@ -1153,6 +1418,74 @@ app.addEventListener('click', async (e) => {
         flash('err', err.message);
       }
       render();
+      break;
+    }
+    // ── Photon Graduados: editor de filtros (PUT /api/photon-grads/config) ──
+    case 'photon-filters': {
+      state.photonPanelOpen = !state.photonPanelOpen;
+      state.photonTestMsg = null;
+      if (state.photonPanelOpen && !state.photonConfig) await loadPhotonConfig();
+      renderView();
+      break;
+    }
+    case 'photon-enabled': {
+      if (!state.user) break;
+      try {
+        const res = await api.setPhotonGradsConfig({ enabled: target.dataset.value !== 'false' });
+        state.photonConfig = { ...state.photonConfig, ...res.config };
+        flash('ok', res.config.enabled ? 'Photon poller activado.' : 'Photon poller pausado.');
+      } catch (err) {
+        flash('err', err.message);
+      }
+      break;
+    }
+    case 'photon-save': {
+      if (!state.user || state.photonSaving) break;
+      const filters = readPhotonEditorValues();
+      state.photonSaving = true;
+      try {
+        const res = await api.setPhotonGradsConfig({ filters, proxy: state.photonDraftProxy ?? '', ta: state.photonDraftTa ?? '' });
+        state.photonConfig = { ...state.photonConfig, ...res.config };
+        state.photonDraft = null;
+        state.photonDraftProxy = null;
+        state.photonDraftTa = null;
+        state.photonPanelOpen = false;
+        flash('ok', 'Filtros de Photon guardados. El poller los aplica en el próximo pull.');
+      } catch (err) {
+        flash('err', err.message);
+      } finally {
+        state.photonSaving = false;
+      }
+      break;
+    }
+    case 'photon-clear': {
+      if (!state.user) break;
+      try {
+        const res = await api.setPhotonGradsConfig({ filters: {} });
+        state.photonConfig = { ...state.photonConfig, ...res.config };
+        state.photonDraft = {};
+        flash('ok', 'Filtros limpiados: la columna baja sin filtro upstream.');
+      } catch (err) {
+        flash('err', err.message);
+      }
+      break;
+    }
+    case 'photon-proxy-test': {
+      if (!state.user || state.photonSaving) break;
+      const filters = readPhotonEditorValues();
+      state.photonSaving = true;
+      renderView();
+      try {
+        const r = await api.photonGradsProxyTest({ proxy: state.photonDraftProxy ?? '', ta: state.photonDraftTa ?? '', filters });
+        state.photonTestMsg = r?.ok
+          ? { ok: true, text: `Sin proxy/filtro OK — ${r.tokens ?? 0} tokens · ${r.ms ?? '?'} ms` }
+          : { ok: false, text: `${r?.error || 'Sin respuesta'} (status ${r?.status ?? '—'})` };
+      } catch (err) {
+        state.photonTestMsg = { ok: false, text: err.message };
+      } finally {
+        state.photonSaving = false;
+      }
+      renderView();
       break;
     }
     case 'toggle-profile':

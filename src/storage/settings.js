@@ -34,13 +34,23 @@ export async function getSettings() {
 }
 
 /**
- * The server address comes from the build, never from anything a user can type: pointing the
- * extension at someone else's server would hand them your sign-in. Local development sets
- * `devServerUrl` by hand (chrome.storage.local), which nothing in the UI writes.
+ * Resolution order: `devServerUrl` (set by hand for local development) → the user's
+ * server URL (editable in Settings) → the build default (config.js).
+ * Everything a user can type must still be a http(s) URL.
  */
 function withServerUrl(settings) {
   const dev = typeof settings.devServerUrl === 'string' && /^https?:\/\/\S+$/.test(settings.devServerUrl) ? settings.devServerUrl : null;
-  return { ...settings, serverUrl: (dev || DEFAULT_SERVER_URL).replace(/\/+$/, '') };
+  const custom = typeof settings.serverUrl === 'string' && /^https?:\/\/\S+$/.test(settings.serverUrl) ? settings.serverUrl : null;
+  return { ...settings, serverUrl: withHttps(dev || custom || DEFAULT_SERVER_URL).replace(/\/+$/, '') };
+}
+
+/** Chrome bloquea los fetch salientes a hosts http:// que no son localhost desde
+ * la página del panel (contexto seguro): "Can't reach the paper-trading server".
+ * Los despliegues reales (Railway, etc.) sirven https — se fuerza al guardar. */
+function withHttps(url) {
+  const m = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:\d+)?(\/|$)/i.exec(url);
+  if (!m && /^http:\/\//i.test(url)) return 'https://' + url.slice(7);
+  return url;
 }
 
 export async function updateSettings(patch) {

@@ -150,8 +150,9 @@ async function signOut() {
 
 // Only these paths may be called through the generic API bridge.
 const ALLOWED = [
-  ['GET', /^\/api\/(config|health|me|portfolio|quote|token-logo|price-history|asset-state|trades|closed-trades|tokens)(\?|$)/],
-  ['POST', /^\/api\/(trades|positions\/close|account\/start|account\/reset|account\/delete|profile|consent|telegram\/test)$/],
+  ['GET', /^\/api\/(config|health|me|portfolio|quote|token-logo|price-history|asset-state|trades|closed-trades|tokens|photon-grads|photon-grads\/config)(\?|$)/],
+  ['POST', /^\/api\/(trades|positions\/close|account\/start|account\/reset|account\/delete|profile|consent|telegram\/test|photon-grads\/proxy-test)$/],
+  ['PUT', /^\/api\/photon-grads\/config$/],
 ];
 const MUTATIONS = /^\/api\/(trades|positions\/close|account\/start|account\/reset|account\/delete)$/; // telegram/test no toca el portafolio
 

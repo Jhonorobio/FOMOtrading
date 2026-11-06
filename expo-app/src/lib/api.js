@@ -97,6 +97,10 @@ export const api = {
   tokenLogo: (chain, address) =>
     request(`/api/token-logo?chain=${encodeURIComponent(chain)}&address=${encodeURIComponent(address)}`, { anonymous: true }),
   tokens: () => request('/api/tokens', { anonymous: true }),
+  photonGrads: () => request('/api/photon-grads', { anonymous: true }),
+  photonGradsConfig: () => request('/api/photon-grads/config', { anonymous: true }),
+  setPhotonGradsConfig: (body) => request('/api/photon-grads/config', { method: 'PUT', body }),
+  photonGradsProxyTest: (body) => request('/api/photon-grads/proxy-test', { method: 'POST', body }),
 
   me: () => request('/api/me'),
   assetState: (chain, address) =>

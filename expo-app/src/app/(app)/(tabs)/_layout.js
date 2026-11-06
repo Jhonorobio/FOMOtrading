@@ -13,6 +13,7 @@ const TAB_ICONS = {
   history: ['time', 'time-outline'],
   style: ['color-palette', 'color-palette-outline'],
   graduados: ['school', 'school-outline'],
+  photon: ['flash', 'flash-outline'],
   trending: ['trending-up', 'trending-up-outline'],
   settings: ['settings', 'settings-outline'],
 };
@@ -38,6 +39,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="history" options={{ title: 'History' }} />
       <Tabs.Screen name="style" options={{ title: 'Style' }} />
       <Tabs.Screen name="graduados" options={{ title: 'Graduados' }} />
+      <Tabs.Screen name="photon" options={{ title: 'Photon' }} />
       <Tabs.Screen name="trending" options={{ title: 'Trending' }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
     </Tabs>

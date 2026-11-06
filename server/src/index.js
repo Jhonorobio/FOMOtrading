@@ -18,6 +18,12 @@ import { fetchQuote, fetchTokenLogo, fetchQuotesBatch, telemetryAuthStatus, inva
 import { setDirectAccessToken, hasCredentials } from './services/telemetry-auth.js';
 import { fetchMobulaTokens, normalizeMobulaToken, getLogoUrl, getLogoDataUrl } from './mobula-http.js';
 import { setProxyUrl, proxyStatus } from './http-client.js';
+import { sendTelegramMessage, graduateMessage, formatMarketCap } from './telegram.js';
+import {
+  startPhotonGradsPoller, closePhotonGrads,
+  getPhotonGradsPayload, getPhotonGradsConfig, setPhotonGradsConfig,
+  getPhotonGradsStatus, testPhotonGradsProxy, FIELD_LABELS,
+} from './photon-grads.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -43,49 +49,6 @@ const TELEGRAM_NOTIFY_TTL_HOURS = (() => {
   if (!Number.isFinite(n) || n <= 0) return 168;
   return n;
 })();
-
-function formatMarketCap(v) {
-  if (v == null || !Number.isFinite(Number(v))) return '—';
-  const n = Number(v);
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
-  if (n >= 1e3) return `$${(n / 1e3).toFixed(2)}K`;
-  return `$${n.toFixed(2)}`;
-}
-
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
-
-/** Envía un mensaje a Telegram. Devuelve true si el envío triunfó, false si falló
- * (incluido bot no configurado) — el que llama decide si reintentar o hacer rollback. */
-async function sendTelegramMessage(text) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.warn('[server] Telegram not configured: set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the server .env');
-    return false;
-  }
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text,
-        parse_mode: 'HTML',
-        disable_web_page_preview: false,
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      console.error('[server] Telegram sendMessage failed:', res.status, body.slice(0, 300));
-      return false;
-    }
-    return true;
-  } catch (err) {
-    // silencioso: no debe romper el refresco de tokens, pero dejamos rastro en el log
-    console.error('[server] Telegram sendMessage error:', err?.message ?? err);
-    return false;
-  }
-}
 
 const app = express();
 app.use(cors());
@@ -259,6 +222,33 @@ app.post('/api/proxy', requireSession, async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+/* ---------------- Photon Graduados (memescope col3) ---------------- */
+
+app.get('/api/photon-grads', async (_req, res) => {
+  res.json(getPhotonGradsPayload());
+});
+
+app.get('/api/photon-grads/config', async (_req, res) => {
+  res.json({
+    config: getPhotonGradsConfig(),
+    status: getPhotonGradsStatus(),
+    fieldLabels: FIELD_LABELS,
+  });
+});
+
+app.put('/api/photon-grads/config', requireSession, async (req, res, next) => {
+  try {
+    const config = setPhotonGradsConfig(req.body ?? {});
+    res.json({ ok: true, config, status: getPhotonGradsStatus() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/photon-grads/proxy-test', requireSession, async (req, res) => {
+  res.json(await testPhotonGradsProxy(req.body ?? {}));
 });
 
 /* ---------------- telemetry.io auth (refresh token) ---------------- */
@@ -590,18 +580,6 @@ async function main() {
   const MAX_NOTIFY_ATTEMPTS = 3;
   const notifyRetries = new Map(); // address -> { token, attempts }
 
-  function graduateMessage(t) {
-    return `🚀 <b>Nuevo token en Graduados</b>\n` +
-      `Symbol: ${t.symbol}\n` +
-      `Name: ${t.name}\n` +
-      `Address: <code>${t.address}</code>\n` +
-      `Security Score: ${t.securityScore ?? '—'} | Holders: ${t.holders ?? '—'} | MK: ${formatMarketCap(t.marketCap)}\n` +
-      `<a href="https://fomo.family/tokens/${t.chainId}/${t.address}">FOMO</a> | ` +
-      `<a href="https://gmgn.ai/sol/token/${t.address}">GMGN</a> | ` +
-      `<a href="https://photon-sol.tinyastro.io/en/lp/${t.address}">PHOTON</a> | ` +
-      `<a href="paper-terminal://trade/${t.chainId}:${t.address}">App</a>`;
-  }
-
   /** Intenta enviar (o reenviar) la notificación de un token. Marca la address
    * ANTES de enviar para que ningún ciclo solapado la duplique; si falla, registra
    * un reintento (y al agotar los intentos, desmarca para dejar rastro limpio).
@@ -706,6 +684,10 @@ async function main() {
 
   refreshGraduatedTokens();
   setInterval(refreshGraduatedTokens, 2000);
+
+  // Photon Graduados (memescope col3): poller con sus propios filtros y su propio
+  // proxy — feed nuevo para la pestaña Photon de app y extensión + Telegram.
+  startPhotonGradsPoller();
 
   app.listen(PORT, () => {
     console.log(`[server] Paper Terminal server listening on http://localhost:${PORT}`);
