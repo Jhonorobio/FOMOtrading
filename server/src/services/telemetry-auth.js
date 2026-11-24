@@ -20,6 +20,9 @@ let accessToken = null; // data_access_token for price API calls
 let refreshToken = null; // stored refresh token
 let accessExpMs = 0;
 let inflight = null;
+// Backoff state for rate-limited (429) responses from telemetry.io
+let backoffUntil = 0;
+const BACKOFF_DEFAULT_MS = 60_000; // 1 minute default backoff on 429
 
 function decodeExp(jwt) {
   try {
@@ -51,6 +54,11 @@ export function getRefreshToken() {
   return process.env.TELEMETRY_REFRESH_TOKEN || store.get('refresh_token') || null;
 }
 
+/** Direct access token from env (TELEMETRY_ACCESS_TOKEN). */
+export function getDirectAccessToken() {
+  return process.env.TELEMETRY_ACCESS_TOKEN || null;
+}
+
 export function hasCredentials() {
   return Boolean(getRefreshToken() || accessToken);
 }
@@ -61,6 +69,12 @@ export function hasCredentials() {
  * Single-flight: concurrent callers share one in-flight renewal.
  */
 export function getAccessToken({ force = false } = {}) {
+  // During backoff, return cached token if available (even if expired) to avoid hammering
+  if (Date.now() < backoffUntil) {
+    if (accessToken) return Promise.resolve(accessToken);
+    return Promise.reject(new Error('TELEMETRY: rate limited (429), backing off'));
+  }
+
   if (!force && accessToken && Date.now() < accessExpMs - MIN_REMAINING_MS) {
     return Promise.resolve(accessToken);
   }
@@ -82,6 +96,24 @@ export function getAccessToken({ force = false } = {}) {
         signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
       });
       if (!res.ok) {
+        if (res.status === 429) {
+          // Rate limited: set backoff and try to use Retry-After header
+          const retryAfter = res.headers.get('retry-after');
+          const waitMs = retryAfter
+            ? (isNaN(retryAfter) ? 0 : Number(retryAfter) * 1000)
+            : BACKOFF_DEFAULT_MS;
+          backoffUntil = Date.now() + (waitMs > 0 ? waitMs : BACKOFF_DEFAULT_MS);
+          console.warn(`[telemetry-auth] 429 rate limited on refresh, backing off for ${Math.round((backoffUntil - Date.now()) / 1000)}s`);
+          // Return cached token if available (even expired) as fallback
+          if (accessToken) return accessToken;
+          throw new Error('TELEMETRY_ERROR:429');
+        }
+        if (res.status === 401 || res.status === 403) {
+          // Invalid/expired refresh token: don't retry, clear state
+          console.error(`[telemetry-auth] Refresh token invalid/expired (HTTP ${res.status}). Update TELEMETRY_REFRESH_TOKEN or use POST /api/market/telemetry/token`);
+          backoffUntil = Date.now() + BACKOFF_DEFAULT_MS;
+          throw new Error('TELEMETRY_ERROR:401');
+        }
         throw new Error(`TELEMETRY refresh failed: HTTP ${res.status}`);
       }
 
@@ -133,6 +165,14 @@ export function setRefreshToken(token) {
 export function setDirectAccessToken(token) {
   accessToken = token;
   accessExpMs = Date.now() + 86_400_000;
+}
+
+// Initialize direct access token from env on module load
+const _directToken = process.env.TELEMETRY_ACCESS_TOKEN;
+if (_directToken) {
+  accessToken = _directToken;
+  accessExpMs = Date.now() + 86_400_000; // 24h
+  console.log('[telemetry-auth] Loaded TELEMETRY_ACCESS_TOKEN from env');
 }
 
 /** Diagnostics for GET /api/market/telemetry/status. Never exposes the token. */

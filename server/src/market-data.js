@@ -30,6 +30,10 @@ async function fetchTelemetryBatch(mints) {
   });
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) invalidateAccessToken();
+    if (res.status === 429) {
+      console.warn('[market-data] telemetry.io returned 429 (rate limited)');
+      throw new Error('TELEMETRY_ERROR:429');
+    }
     throw new Error(`TELEMETRY_ERROR:${res.status}`);
   }
   return await res.json();
@@ -63,6 +67,9 @@ function normalizeTelemetryItem(item, address) {
 /* Public API                                                       */
 /* ---------------------------------------------------------------- */
 
+// In-memory cache of last known quotes (address -> quote) for stale fallback on 429
+const quoteCache = new Map();
+
 export async function fetchQuote(chainId, address) {
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -73,12 +80,30 @@ export async function fetchQuote(chainId, address) {
         ? items.find((i) => String(i.mint ?? i.address ?? '').toLowerCase() === address.toLowerCase())
         : items;
       const q = normalizeTelemetryItem(item, address);
-      if (q) return q;
+      if (q) {
+        quoteCache.set(address, q);
+        return q;
+      }
       throw new Error('ASSET_NOT_FOUND');
     } catch (err) {
       lastErr = err;
       if (err.message === 'ASSET_NOT_FOUND') throw err;
+      if (err.message.includes('TELEMETRY_ERROR:429') || err.message.includes('TELEMETRY refresh failed: HTTP 429') || err.message.includes('rate limited')) {
+        // Rate limited: return stale cached quote if available
+        const cached = quoteCache.get(address);
+        if (cached) {
+          console.warn('[market-data] returning stale cached quote for', address, 'due to 429');
+          return { ...cached, stale: true };
+        }
+        throw new Error('MARKET_DATA_RATE_LIMITED');
+      }
       if (err.message.includes('TELEMETRY_ERROR:401') || err.message.includes('TELEMETRY_ERROR:403')) {
+        // Check if it's a refresh token issue (not a data access token issue)
+        if (err.message.includes('TELEMETRY refresh failed') || err.message === 'TELEMETRY_ERROR:401') {
+          // Refresh token is invalid/expired - don't retry, throw clear error
+          console.error('[market-data] Refresh token invalid. Use POST /api/market/telemetry/token to set a new access token.');
+          throw new Error('TELEMETRY_AUTH_INVALID');
+        }
         invalidateAccessToken();
         continue;
       }
@@ -105,7 +130,15 @@ export async function fetchQuotesBatch(addresses) {
       return map;
     } catch (err) {
       lastErr = err;
+      if (err.message.includes('TELEMETRY_ERROR:429') || err.message.includes('TELEMETRY refresh failed: HTTP 429') || err.message.includes('rate limited')) {
+        console.warn('[market-data] fetchQuotesBatch rate limited (429)');
+        return {};
+      }
       if (err.message.includes('TELEMETRY_ERROR:401') || err.message.includes('TELEMETRY_ERROR:403')) {
+        if (err.message.includes('TELEMETRY refresh failed') || err.message === 'TELEMETRY_ERROR:401') {
+          console.error('[market-data] Refresh token invalid. Use POST /api/market/telemetry/token to set a new access token.');
+          return {};
+        }
         invalidateAccessToken();
         continue;
       }
@@ -142,6 +175,10 @@ export async function fetchTokenLogo(address) {
     } catch (err) {
       lastErr = err;
       if (err.message.includes('TELEMETRY_ERROR:401') || err.message.includes('TELEMETRY_ERROR:403')) {
+        if (err.message.includes('TELEMETRY refresh failed') || err.message === 'TELEMETRY_ERROR:401') {
+          console.error('[market-data] Refresh token invalid. Use POST /api/market/telemetry/token to set a new access token.');
+          return {};
+        }
         invalidateAccessToken();
         continue;
       }

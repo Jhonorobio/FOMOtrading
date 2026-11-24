@@ -539,6 +539,8 @@ function errorToStatus(code) {
     case 'MARKET_DATA_RATE_LIMITED':
     case 'MARKET_DATA_ERROR':
       return 502;
+    case 'TELEMETRY_AUTH_INVALID':
+      return 401;
     case 'ACCOUNT_ALREADY_STARTED':
       return 409;
     default:
