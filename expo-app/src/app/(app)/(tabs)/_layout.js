@@ -1,5 +1,5 @@
 // Bottom tab bar — icons + labels like the side panel nav (.nav chips),
-// 6 entries: Trade / Portfolio / History / Style / Graduados / Trending.
+// 5 entries: Trade / Portfolio / History / Tokens / Settings.
 // Icons: Ionicons (@expo/vector-icons), picked to match the web's Phosphor glyphs
 // (wallet, history, trendUp, gear) from src/components/icons.js.
 import { Tabs } from 'expo-router';
@@ -11,10 +11,7 @@ const TAB_ICONS = {
   index: ['swap-horizontal', 'swap-horizontal-outline'],
   portfolio: ['wallet', 'wallet-outline'],
   history: ['time', 'time-outline'],
-  style: ['color-palette', 'color-palette-outline'],
-  graduados: ['school', 'school-outline'],
-  photon: ['flash', 'flash-outline'],
-  trending: ['trending-up', 'trending-up-outline'],
+  tokens: ['layers', 'layers-outline'],
   settings: ['settings', 'settings-outline'],
 };
 
@@ -37,10 +34,7 @@ export default function TabsLayout() {
       <Tabs.Screen name="index" options={{ title: 'Trade' }} />
       <Tabs.Screen name="portfolio" options={{ title: 'Portfolio' }} />
       <Tabs.Screen name="history" options={{ title: 'History' }} />
-      <Tabs.Screen name="style" options={{ title: 'Style' }} />
-      <Tabs.Screen name="graduados" options={{ title: 'Graduados' }} />
-      <Tabs.Screen name="photon" options={{ title: 'Photon' }} />
-      <Tabs.Screen name="trending" options={{ title: 'Trending' }} />
+      <Tabs.Screen name="tokens" options={{ title: 'Tokens' }} />
       <Tabs.Screen name="settings" options={{ title: 'Settings' }} />
     </Tabs>
   );

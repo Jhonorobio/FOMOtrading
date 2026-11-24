@@ -1,10 +1,10 @@
 // STYLE TAB — mirror of renderStyle (sidepanel.js:799-867).
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView, Share } from 'react-native';
-import { api } from '../../../lib/api';
-import { C } from '../../../lib/theme';
-import { formatUsd, formatSignedUsd, formatPct, formatDuration } from '../../../lib/format';
-import { Screen, Box, Notice, SectionHeader } from '../../../components/ui';
+import { api } from '../lib/api';
+import { C } from '../lib/theme';
+import { formatUsd, formatSignedUsd, formatPct, formatDuration } from '../lib/format';
+import { Box, Notice, SectionHeader } from './ui';
 
 const STYLE_SAMPLE = 5;
 
@@ -53,8 +53,7 @@ export default function StyleScreen() {
   }
 
   return (
-    <Screen title="Style">
-      <ScrollView contentContainerStyle={t.stylescroll}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={t.stylescroll}>
         <Text style={t.h1}>Style</Text>
         <Box>
           <View style={t.hero}>
@@ -142,7 +141,6 @@ export default function StyleScreen() {
         {error ? <Notice kind="err" text={error} /> : null}
         {notice ? <Notice kind="err" text={notice} /> : null}
       </ScrollView>
-    </Screen>
   );
 }
 

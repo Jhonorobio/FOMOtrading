@@ -3,7 +3,8 @@
 // fomo.family link, DexScreener link, or `chain:address`.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView } from 'react-native';
-import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
+import { pendingTokenRef } from './tokens';
 import { api, ApiError, getServerUrl } from '../../../lib/api';
 import { useSession } from '../../../lib/session';
 import { C } from '../../../lib/theme';
@@ -129,15 +130,29 @@ function TradePanel({ me, setMe }) {
   const [customPresets, setCustomPresets] = useState({ buy: null, sell: null });
   const addressInput = useRef(null);
 
-  // Auto-load a token when arriving from Graduados / Trending (?ref=chain:address)
-  const searchParams = useLocalSearchParams();
+  // Auto-load a token passed from the Tokens tab via module-level ref
   useEffect(() => {
-    const ref = searchParams.ref;
-    if (ref) {
-      setRef(String(ref));
-      loadManual();
+    if (pendingTokenRef.current) {
+      const t = pendingTokenRef.current;
+      pendingTokenRef.current = null;
+      const r = `${t.chainId}:${t.address}`;
+      setRef(r);
+      loadManual(r);
     }
-  }, [searchParams.ref]);
+  }, []);
+
+  // Also check on focus
+  useFocusEffect(
+    useCallback(() => {
+      if (pendingTokenRef.current) {
+        const t = pendingTokenRef.current;
+        pendingTokenRef.current = null;
+        const r = `${t.chainId}:${t.address}`;
+        setRef(r);
+        loadManual(r);
+      }
+    }, []),
+  );
 
   const symbol = (quote && quote.symbol) || (token ? token.chain.toUpperCase() : '') || 'token';
   const cash = me?.account?.cashBalance ?? 0;
@@ -156,13 +171,15 @@ function TradePanel({ me, setMe }) {
     setSellPercent(null);
   }, []);
 
-  function loadManual() {
-    const parsed = parseTokenRef(ref);
+  function loadManual(value) {
+    const input = value !== undefined ? value : ref;
+    const parsed = parseTokenRef(input);
     if (!parsed) {
       setManualError('Paste a fomo.family token link, a DexScreener link, or chain:address.');
       return;
     }
     setManualError('');
+    setRef(input);
     setTokenRef(parsed);
   }
 

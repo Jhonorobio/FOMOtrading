@@ -58,7 +58,7 @@ export default function TokensFeed({ mode, onTokenPress }) {
   const title = mode === 'trending' ? 'Trending' : 'Discovered tokens';
 
   return (
-    <ScrollView contentContainerStyle={k.scroll}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={k.scroll}>
       <SectionHeader title={title} count={list.length} />
       <Box pad={false} style={k.listBox}>
         {tokens == null && !error && (
@@ -76,33 +76,37 @@ export default function TokensFeed({ mode, onTokenPress }) {
         {list.map((t) => {
           const rowContent = (
             <>
-              <Avatar symbol={t.symbol} chainId={t.chainId} address={t.address} size={30} />
-              <View style={k.rowMain}>
-                <Text style={k.rowSymbol}>{t.symbol}</Text>
-                <Text numberOfLines={1} style={k.rowName}>{t.name}</Text>
+              <View style={k.rowTop}>
+                <Avatar symbol={t.symbol} chainId={t.chainId} address={t.address} size={34} />
+                <View style={k.rowMain}>
+                  <Text style={k.rowSymbol}>{t.symbol}</Text>
+                  <Text numberOfLines={1} style={k.rowName}>{t.name}</Text>
+                </View>
               </View>
-              <View style={k.stat}>
-                <Text style={k.statLabel}>Security</Text>
-                <Text style={k.statValue}>{t.securityScore != null ? Number(t.securityScore) : '—'}</Text>
-              </View>
-              <View style={k.stat}>
-                <Text style={k.statLabel}>Market cap</Text>
-                <Text style={k.statValue}>{formatCompactUsd(t.marketCap)}</Text>
-              </View>
-              <View style={k.stat}>
-                <Text style={k.statLabel}>Holders</Text>
-                <Text style={k.statValue}>{t.holders != null ? Number(t.holders).toLocaleString('en-US') : '—'}</Text>
+              <View style={k.statRow}>
+                <View style={k.stat}>
+                  <Text style={k.statLabel}>Security</Text>
+                  <Text style={k.statValue}>{t.securityScore != null ? Number(t.securityScore) : '—'}</Text>
+                </View>
+                <View style={k.stat}>
+                  <Text style={k.statLabel}>Market cap</Text>
+                  <Text style={k.statValue}>{formatCompactUsd(t.marketCap)}</Text>
+                </View>
+                <View style={k.stat}>
+                  <Text style={k.statLabel}>Holders</Text>
+                  <Text style={k.statValue}>{t.holders != null ? Number(t.holders).toLocaleString('en-US') : '—'}</Text>
+                </View>
               </View>
             </>
           );
           return (
-            <View key={t.address} style={k.row}>
+            <View key={t.address} style={k.rowWrap}>
               {onTokenPress ? (
-                <Pressable style={k.row} onPress={() => onTokenPress(t)}>
+                <Pressable style={({ pressed }) => [k.rowCard, pressed && k.pressed]} onPress={() => onTokenPress(t)}>
                   {rowContent}
                 </Pressable>
               ) : (
-                rowContent
+                <View style={k.rowCard}>{rowContent}</View>
               )}
               <Pressable style={({ pressed }) => [k.linkBtn, pressed && k.pressed]} onPress={() => openOnFomo(t)}>
                 <Text style={k.linkText}>↗</Text>
@@ -123,15 +127,18 @@ const k = StyleSheet.create({
   empty: { alignItems: 'center', padding: 22 },
   emptyTitle: { color: C.text, fontSize: 15, fontWeight: '700' },
   emptySub: { color: C.text3, fontSize: 13, marginTop: 4, textAlign: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.bg2, borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 8, gap: 8, marginBottom: 6 },
-  rowMain: { flex: 1, minWidth: 60 },
+  rowWrap: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 6 },
+  rowCard: { flex: 1, gap: 8, backgroundColor: C.bg2, borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 10 },
+  rowTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rowMain: { flex: 1, minWidth: 0 },
   rowSymbol: { color: C.text, fontSize: 15, fontWeight: '700' },
-  rowName: { color: C.text2, fontSize: 12 },
-  linkBtn: { width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  linkText: { color: C.text3, fontSize: 14 },
-  stat: { width: 78, alignItems: 'flex-end' },
-  statLabel: { color: C.text3, fontSize: 10, textTransform: 'uppercase' },
+  rowName: { color: C.text2, fontSize: 11, marginTop: 1 },
+  linkBtn: { width: 30, height: 30, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg3 },
+  linkText: { color: C.text2, fontSize: 14 },
+  statRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
+  stat: { alignItems: 'flex-start', minWidth: 0, flex: 1 },
+  statLabel: { color: C.text3, fontSize: 9, textTransform: 'uppercase', marginBottom: 2, letterSpacing: 0.4 },
   statValue: { color: C.text, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
   foot: { color: C.text3, fontSize: 11, textAlign: 'center', marginTop: 10 },
-  pressed: { transform: [{ scale: 0.96 }], opacity: 0.9 },
+  pressed: { transform: [{ scale: 0.98 }], opacity: 0.9 },
 });
