@@ -167,10 +167,7 @@ export async function fetchMobulaTokens() {
   }
 
   const data = await res.json();
-  console.log('[mobula-http] Mobula raw response keys:', Object.keys(data));
-  console.log('[mobula-http] Mobula raw response sample:', JSON.stringify(data).slice(0, 500));
   const rawTokens = extractTokens(data);
-  console.log('[mobula-http] Mobula extracted', rawTokens.length, 'raw tokens');
 
   // Filtrar tokens cuyo objeto security solo tiene launchpadFeePercentage (y nada más)
   const filteredTokens = rawTokens.filter((t) => {
@@ -202,16 +199,13 @@ export async function fetchMobulaTokens() {
 
     return true;
   });
-  console.log('[mobula-http] After security filter:', filteredTokens.length, 'tokens');
-
   // Filtrar por totalHolders >= 100 usando el endpoint de FOMO (mismo auth que Mobula)
   const holdersMap = await getTopHoldersBatch(filteredTokens);
-  console.log('[mobula-http] Holders map keys:', Object.keys(holdersMap));
   const tokensWithHolders = filteredTokens.filter((t) => {
     const totalHolders = holdersMap[t.address] ?? 0;
     return totalHolders >= 150;
   });
-  console.log('[mobula-http] After holders filter:', tokensWithHolders.length, 'tokens');
+  console.log('[mobula-http] Fetched', tokensWithHolders.length, 'tokens (from', rawTokens.length, 'raw)');
 
   // Cachear logo URLs por address para uso posterior en /api/token-logo
   for (const t of filteredTokens) {

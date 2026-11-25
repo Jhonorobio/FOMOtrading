@@ -713,7 +713,7 @@ async function main() {
 
       knownAddresses = new Set(enriched.map((t) => t.address));
       firstRefreshDone = true;
-      console.log('[server] graduated tokens refreshed:', enriched.length, 'new:', newTokens.length);
+      console.log('[server] graduated tokens:', enriched.length, '(new:', newTokens.length + ')');
     } catch (err) {
       console.error('[server] failed to refresh graduated tokens:', err.message);
     } finally {
