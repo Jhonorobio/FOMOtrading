@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { View } from 'react-native';
 import TokensFeed from '../../../components/TokensFeed';
-import PhotonGradsFeed from '../../../components/PhotonGradsFeed';
+import TelegramMessagesFeed from '../../../components/TelegramMessagesFeed';
 import { Screen, Seg } from '../../../components/ui';
 
 // Module-level ref to pass the selected token to the Trade tab
@@ -22,7 +22,7 @@ export default function TokensScreen() {
         <Seg
           options={[
             { value: 'graduados', label: 'Graduados' },
-            { value: 'photon', label: 'Photon' },
+            { value: 'telegram', label: 'Telegram' },
             { value: 'trending', label: 'Trending' },
           ]}
           value={tab}
@@ -30,7 +30,7 @@ export default function TokensScreen() {
         />
       </View>
       {tab === 'graduados' && <TokensFeed mode="graduados" onTokenPress={onTokenPress} />}
-      {tab === 'photon' && <PhotonGradsFeed onTokenPress={onTokenPress} />}
+      {tab === 'telegram' && <TelegramMessagesFeed />}
       {tab === 'trending' && <TokensFeed mode="trending" onTokenPress={onTokenPress} />}
     </Screen>
   );

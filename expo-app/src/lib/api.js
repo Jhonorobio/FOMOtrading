@@ -97,10 +97,13 @@ export const api = {
   tokenLogo: (chain, address) =>
     request(`/api/token-logo?chain=${encodeURIComponent(chain)}&address=${encodeURIComponent(address)}`, { anonymous: true }),
   tokens: () => request('/api/tokens', { anonymous: true }),
-  photonGrads: () => request('/api/photon-grads', { anonymous: true }),
-  photonGradsConfig: () => request('/api/photon-grads/config', { anonymous: true }),
-  setPhotonGradsConfig: (body) => request('/api/photon-grads/config', { method: 'PUT', body }),
-  photonGradsProxyTest: (body) => request('/api/photon-grads/proxy-test', { method: 'POST', body }),
+  telegramStatus: () => request('/api/telegram/status', { anonymous: true }),
+  telegramMessages: (params = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)]));
+    const q = qs.toString();
+    return request(`/api/telegram/messages${q ? `?${q}` : ''}`, { anonymous: true });
+  },
+  telegramChats: () => request('/api/telegram/chats', { anonymous: true }),
 
   me: () => request('/api/me'),
   assetState: (chain, address) =>
