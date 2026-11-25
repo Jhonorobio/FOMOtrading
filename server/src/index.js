@@ -8,7 +8,7 @@ import cors from 'cors';
 
 import './env.js';
 import { signSession, getSessionUser, deleteSession, createSession, verifyAccessCode, ensurePersonalUser } from './auth.js';
-import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens, getNotifiedGraduatedAddresses, markGraduatedTokensNotified, clearOldNotifiedGraduatedTokens, deleteNotifiedGraduatedTokens, flushDb } from './db.js';
+import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens, getNotifiedGraduatedAddresses, markGraduatedTokensNotified, clearOldNotifiedGraduatedTokens, deleteNotifiedGraduatedTokens, flushDb, getTelegramMessages, getTelegramChats, getTelegramMessageCount } from './db.js';
 import {
   getOrCreateAccount, startAccount, resetAccount, placeTrade, closePosition,
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
@@ -18,6 +18,7 @@ import { fetchQuote, fetchTokenLogo, fetchQuotesBatch, telemetryAuthStatus, inva
 import { setDirectAccessToken, hasCredentials } from './services/telemetry-auth.js';
 import { fetchMobulaTokens, normalizeMobulaToken, getLogoUrl, getLogoDataUrl } from './mobula-http.js';
 import { setProxyUrl, proxyStatus } from './http-client.js';
+import { startTelegramClient, stopTelegramClient, getTelegramClientStatus } from './services/telegram-client.js';
 import { sendTelegramMessage, graduateMessage, formatMarketCap } from './telegram.js';
 import {
   startPhotonGradsPoller, closePhotonGrads,
@@ -249,6 +250,42 @@ app.put('/api/photon-grads/config', requireSession, async (req, res, next) => {
 
 app.post('/api/photon-grads/proxy-test', requireSession, async (req, res) => {
   res.json(await testPhotonGradsProxy(req.body ?? {}));
+});
+
+/* ---------------- Telegram client (capture messages from channels) ---------------- */
+
+app.get('/api/telegram/status', (_req, res) => {
+  res.json(getTelegramClientStatus());
+});
+
+app.get('/api/telegram/messages', (req, res) => {
+  const limit = Number(req.query.limit) || 50;
+  const offset = Number(req.query.offset) || 0;
+  const chatId = req.query.chatId || null;
+  const since = req.query.since ? Number(req.query.since) : null;
+  res.json({
+    messages: getTelegramMessages({ chatId, limit, offset, since }),
+    count: getTelegramMessageCount(),
+    chats: getTelegramChats(),
+  });
+});
+
+app.get('/api/telegram/chats', (_req, res) => {
+  res.json({ chats: getTelegramChats() });
+});
+
+app.post('/api/telegram/start', requireSession, async (_req, res, next) => {
+  try {
+    const result = await startTelegramClient();
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/telegram/stop', requireSession, async (_req, res) => {
+  stopTelegramClient();
+  res.json({ ok: true, message: 'Disconnected' });
 });
 
 /* ---------------- telemetry.io auth (refresh token) ---------------- */
@@ -690,6 +727,17 @@ async function main() {
   // Photon Graduados (memescope col3): poller con sus propios filtros y su propio
   // proxy — feed nuevo para la pestaña Photon de app y extensión + Telegram.
   startPhotonGradsPoller();
+
+  // Telegram client: capture messages from subscribed channels (if configured)
+  if (process.env.TELEGRAM_API_ID && process.env.TELEGRAM_API_HASH) {
+    console.log('[server] Telegram client configured, starting...');
+    startTelegramClient().then((r) => {
+      if (r.ok) console.log('[server] Telegram client connected');
+      else console.warn('[server] Telegram client not connected:', r.message);
+    }).catch((err) => console.error('[server] Telegram client error:', err.message));
+  } else {
+    console.log('[server] Telegram client not configured (set TELEGRAM_API_ID and TELEGRAM_API_HASH to enable)');
+  }
 
   app.listen(PORT, () => {
     console.log(`[server] Paper Terminal server listening on http://localhost:${PORT}`);

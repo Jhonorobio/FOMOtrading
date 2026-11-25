@@ -128,6 +128,22 @@ const SCHEMA = `
     address TEXT PRIMARY KEY,
     notified_at INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS telegram_messages (
+    id TEXT PRIMARY KEY,
+    chat_id TEXT NOT NULL,
+    chat_title TEXT,
+    sender_id TEXT,
+    sender_name TEXT,
+    message_text TEXT,
+    message_date INTEGER NOT NULL,
+    has_media INTEGER NOT NULL DEFAULT 0,
+    media_type TEXT,
+    raw_json TEXT,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_tg_messages_chat ON telegram_messages(chat_id);
+  CREATE INDEX IF NOT EXISTS idx_tg_messages_date ON telegram_messages(message_date DESC);
 `;
 
 export async function initDb() {
@@ -353,6 +369,67 @@ export function deleteNotifiedGraduatedTokens(addresses) {
   stmt.free();
   dirty = true;
   return (addresses || []).length;
+}
+
+/* ---------------- telegram messages (captured from channels) ---------------- */
+
+export function saveTelegramMessage(msg) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare(
+    'INSERT OR IGNORE INTO telegram_messages (id, chat_id, chat_title, sender_id, sender_name, message_text, message_date, has_media, media_type, raw_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+  stmt.run([
+    msg.id,
+    msg.chatId,
+    msg.chatTitle || null,
+    msg.senderId || null,
+    msg.senderName || null,
+    msg.text || null,
+    msg.date || Date.now(),
+    msg.hasMedia ? 1 : 0,
+    msg.mediaType || null,
+    msg.raw ? JSON.stringify(msg.raw) : null,
+    Date.now(),
+  ]);
+  stmt.free();
+}
+
+export function getTelegramMessages({ chatId, limit = 50, offset = 0, since } = {}) {
+  let sql = 'SELECT * FROM telegram_messages WHERE 1=1';
+  const params = [];
+  if (chatId) { sql += ' AND chat_id = ?'; params.push(chatId); }
+  if (since) { sql += ' AND message_date >= ?'; params.push(since); }
+  sql += ' ORDER BY message_date DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+  const rows = all(sql, params);
+  return rows.map((r) => ({
+    id: r.id,
+    chatId: r.chat_id,
+    chatTitle: r.chat_title,
+    senderId: r.sender_id,
+    senderName: r.sender_name,
+    text: r.message_text,
+    date: r.message_date,
+    hasMedia: !!r.has_media,
+    mediaType: r.media_type,
+    createdAt: r.created_at,
+  }));
+}
+
+export function getTelegramChats() {
+  const rows = all('SELECT chat_id, chat_title, COUNT(*) as count, MAX(message_date) as last_date FROM telegram_messages GROUP BY chat_id ORDER BY last_date DESC');
+  return rows.map((r) => ({
+    chatId: r.chat_id,
+    chatTitle: r.chat_title,
+    count: r.count,
+    lastDate: r.last_date,
+  }));
+}
+
+export function getTelegramMessageCount() {
+  const row = get('SELECT COUNT(*) as c FROM telegram_messages');
+  return row ? row.c : 0;
 }
 
 /** Persiste la DB de inmediato (evita perder marcas de notificados entre ticks de 30s). */
