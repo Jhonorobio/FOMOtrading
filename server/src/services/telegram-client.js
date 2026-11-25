@@ -91,13 +91,14 @@ export async function startTelegramClient() {
       if (!phone) {
         lastError = 'TELEGRAM_PHONE required for first authentication. Set it in .env and restart.';
         console.error('[telegram-client]', lastError);
+        console.error('[telegram-client] TIP: Run "node auth-telegram.js" locally to get a session string, then set TELEGRAM_SESSION in your env.');
         connecting = false;
         return { ok: false, message: lastError };
       }
 
       console.log('[telegram-client] Starting authentication for', phone);
       await client.sendCode({ apiId, apiHash }, phone);
-      console.log('[telegram-client] Code sent. Set TELEGRAM_CODE env var and restart, or use the auth endpoint.');
+      console.log('[telegram-client] Code sent to', phone);
 
       // For Railway/non-interactive: check for TELEGRAM_CODE env
       const code = process.env.TELEGRAM_CODE;
@@ -114,6 +115,7 @@ export async function startTelegramClient() {
       } else {
         lastError = 'TELEGRAM_CODE required. Check your Telegram messages and set TELEGRAM_CODE env var, then restart.';
         console.error('[telegram-client]', lastError);
+        console.error('[telegram-client] TIP: Or run "node auth-telegram.js" locally to get a session string, then set TELEGRAM_SESSION in your env (recommended for Railway).');
         connecting = false;
         return { ok: false, message: lastError };
       }
