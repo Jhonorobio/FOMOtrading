@@ -405,10 +405,10 @@ async function fetchTokenInfo(address, messageRecord) {
       ageMinutes = extractAgeMinutes(messageRecord.text || '');
     }
 
-    // Reject tokens with market cap < $10,000
+    // Reject tokens with market cap < $42,000
     const mc = quote.marketCapUsd || 0;
-    if (mc > 0 && mc < 10000) {
-      console.log(`[telegram-client] Rejected ${quote.symbol || address.slice(0, 8)}: market cap $${mc} < $10,000`);
+    if (mc > 0 && mc < 42000) {
+      console.log(`[telegram-client] Rejected ${quote.symbol || address.slice(0, 8)}: market cap $${mc} < $42,000`);
       return;
     }
 
