@@ -13,7 +13,9 @@ export default function TokensScreen() {
   const [tab, setTab] = useState('graduados');
   const onTokenPress = (t) => {
     pendingTokenRef.current = t;
-    router.push('/(app)/(tabs)');
+    setTimeout(() => {
+      router.push('/(app)/(tabs)/index');
+    }, 100);
   };
 
   return (
@@ -30,7 +32,7 @@ export default function TokensScreen() {
         />
       </View>
       {tab === 'graduados' && <TokensFeed mode="graduados" onTokenPress={onTokenPress} />}
-      {tab === 'telegram' && <TelegramMessagesFeed />}
+      {tab === 'telegram' && <TelegramMessagesFeed onTokenPress={onTokenPress} />}
       {tab === 'trending' && <TokensFeed mode="trending" onTokenPress={onTokenPress} />}
     </Screen>
   );

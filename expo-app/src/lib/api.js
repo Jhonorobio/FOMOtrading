@@ -104,6 +104,12 @@ export const api = {
     return request(`/api/telegram/messages${q ? `?${q}` : ''}`, { anonymous: true });
   },
   telegramChats: () => request('/api/telegram/chats', { anonymous: true }),
+  telegramDetectedTokens: (params = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)]));
+    const q = qs.toString();
+    return request(`/api/telegram/detected-tokens${q ? `?${q}` : ''}`, { anonymous: true });
+  },
+  clearTelegramDetectedTokens: () => request('/api/telegram/detected-tokens', { method: 'DELETE' }),
 
   me: () => request('/api/me'),
   assetState: (chain, address) =>

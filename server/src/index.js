@@ -8,7 +8,7 @@ import cors from 'cors';
 
 import './env.js';
 import { signSession, getSessionUser, deleteSession, createSession, verifyAccessCode, ensurePersonalUser } from './auth.js';
-import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens, getNotifiedGraduatedAddresses, markGraduatedTokensNotified, clearOldNotifiedGraduatedTokens, deleteNotifiedGraduatedTokens, flushDb, getTelegramMessages, getTelegramChats, getTelegramMessageCount } from './db.js';
+import { initDb, get, getGraduatedTokens, saveGraduatedTokens, removeStaleGraduatedTokens, getNotifiedGraduatedAddresses, markGraduatedTokensNotified, clearOldNotifiedGraduatedTokens, deleteNotifiedGraduatedTokens, flushDb, getTelegramMessages, getTelegramChats, getTelegramMessageCount, getDetectedTokens, getDetectedTokenCount, clearDetectedTokens, deleteDetectedTokensBelowMc, deleteDetectedTokenByAddress, updateDetectedTokenHighestMc } from './db.js';
 import {
   getOrCreateAccount, startAccount, resetAccount, placeTrade, closePosition,
   getPortfolio, getTrades, getClosedTrades, exportUserData, updateProfile,
@@ -202,10 +202,25 @@ app.get('/api/token-logo', async (req, res, next) => {
   try {
     const { chain, address } = req.query;
     if (!chain || !address) return res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'chain and address are required.' } });
-    // Primero buscar en la base de datos (graduated_tokens guarda el logo URL de Mobula)
+    // Primero buscar en graduated_tokens (logo URL de Mobula)
     const row = get('SELECT logo FROM graduated_tokens WHERE address = ?', [address]);
     if (row?.logo) return res.json({ dataUrl: row.logo });
-    // Si no está en la DB, intentar obtenerlo de Mobula y convertir a data: URL
+    // Buscar en telegram_detected_tokens (logo URL de telemetry)
+    const tgRow = get('SELECT logo FROM telegram_detected_tokens WHERE address = ? ORDER BY detected_at DESC LIMIT 1', [address]);
+    if (tgRow?.logo && tgRow.logo.startsWith('data:')) return res.json({ dataUrl: tgRow.logo });
+    if (tgRow?.logo) {
+      // Es una URL regular, intentar convertir a data URL
+      try {
+        const r = await fetch(tgRow.logo);
+        if (r.ok) {
+          const buffer = Buffer.from(await r.arrayBuffer());
+          const contentType = r.headers.get('content-type') || 'image/png';
+          const dataUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
+          return res.json({ dataUrl });
+        }
+      } catch {}
+    }
+    // Si no está en ninguna DB, intentar obtenerlo de Mobula y convertir a data: URL
     const dataUrl = await getLogoDataUrl(address);
     res.json({ dataUrl: dataUrl || null });
   } catch (err) {
@@ -272,6 +287,97 @@ app.get('/api/telegram/messages', (req, res) => {
 
 app.get('/api/telegram/chats', (_req, res) => {
   res.json({ chats: getTelegramChats() });
+});
+
+app.get('/api/telegram/detected-tokens', async (req, res, next) => {
+  try {
+    const limit = Number(req.query.limit) || 50;
+    const offset = Number(req.query.offset) || 0;
+    const chatId = req.query.chatId || null;
+    const since = req.query.since ? Number(req.query.since) : null;
+    const detected = getDetectedTokens({ chatId, limit, offset, since });
+
+    // Fetch live quotes for all detected tokens in a single batch (telemetry.io)
+    const addresses = [...new Set(detected.map((t) => t.address).filter(Boolean))];
+    let quoteMap = {};
+    if (addresses.length > 0) {
+      try {
+        quoteMap = await fetchQuotesBatch(addresses);
+      } catch (err) {
+        console.error('[api/telegram/detected-tokens] quote fetch failed:', err.message);
+      }
+    }
+
+    // Attach live quote data to each detected token
+    const tokens = detected.map((t) => {
+      const q = quoteMap[t.address];
+      const liveMc = q?.marketCapUsd ?? t.marketCapUsd ?? null;
+      const entryMc = t.entryMarketCapUsd ?? t.marketCapUsd ?? null;
+      // Update highest market cap (high water mark)
+      let highestMc = t.highestMarketCapUsd ?? entryMc;
+      if (liveMc && liveMc > (highestMc || 0)) {
+        highestMc = liveMc;
+        // Persist the new highest market cap to DB
+        updateDetectedTokenHighestMc(t.address, highestMc);
+      }
+      // Calculate current age in minutes from telemetry createdAt (or stored created_at)
+      const createdAt = q?.createdAt || t.createdAt || null;
+      let ageMinutes = t.ageMinutes ?? null;
+      if (createdAt) {
+        const createdMs = new Date(createdAt).getTime();
+        if (Number.isFinite(createdMs) && createdMs > 0) {
+          ageMinutes = Math.round((Date.now() - createdMs) / 60000);
+        }
+      }
+      // Calculate MC change percentage (entry vs highest)
+      let mcChangePct = null;
+      if (entryMc && highestMc && entryMc > 0) {
+        mcChangePct = ((highestMc - entryMc) / entryMc) * 100;
+      }
+      return {
+        ...t,
+        priceUsd: q?.priceUsd ?? t.priceUsd ?? null,
+        marketCapUsd: liveMc,
+        entryMarketCapUsd: entryMc,
+        highestMarketCapUsd: highestMc,
+        mcChangePct,
+        symbol: q?.symbol ?? t.symbol ?? null,
+        name: q?.name ?? t.name ?? null,
+        createdAt: createdAt || t.createdAt,
+        ageMinutes,
+        stale: !q,
+      };
+    });
+
+    // Delete tokens that dropped below $10,000 market cap
+    const belowThreshold = tokens.filter((t) => t.marketCapUsd != null && t.marketCapUsd < 10000);
+    for (const t of belowThreshold) {
+      deleteDetectedTokenByAddress(t.address);
+      console.log(`[api/telegram/detected-tokens] Deleted ${t.symbol || t.address.slice(0, 8)}: market cap $${t.marketCapUsd} < $10,000`);
+    }
+
+    // Delete tokens older than 1 hour (age > 60 minutes)
+    const tooOld = tokens.filter((t) => t.ageMinutes != null && t.ageMinutes > 60);
+    for (const t of tooOld) {
+      deleteDetectedTokenByAddress(t.address);
+      console.log(`[api/telegram/detected-tokens] Deleted ${t.symbol || t.address.slice(0, 8)}: age ${t.ageMinutes}min > 60min`);
+    }
+
+    // Filter out deleted tokens from response
+    const filtered = tokens.filter((t) => !(t.marketCapUsd != null && t.marketCapUsd < 10000) && !(t.ageMinutes != null && t.ageMinutes > 60));
+
+    res.json({
+      tokens: filtered,
+      count: getDetectedTokenCount(),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.delete('/api/telegram/detected-tokens', requireSession, (_req, res) => {
+  const deleted = clearDetectedTokens();
+  res.json({ ok: true, deleted });
 });
 
 app.post('/api/telegram/start', requireSession, async (_req, res, next) => {
@@ -654,11 +760,10 @@ async function main() {
   };
 
   /** Reintenta el envío de tokens pendientes de la cola (al inicio de cada ciclo). */
+  // DISABLED: notificaciones de graduados desactivadas
   async function flushNotifyRetries() {
-    for (const [address, entry] of [...notifyRetries.entries()]) {
-      notifyRetries.delete(address);
-      await notifyGraduatedToken(entry.token, entry.attempts);
-    }
+    // No-op: notificaciones desactivadas
+    notifyRetries.clear();
   }
 
   async function refreshGraduatedTokens() {
@@ -692,6 +797,8 @@ async function main() {
       // para no disparar notificación de todos los tokens en el arranque inicial).
       // Cada address se notifica UNA SOLA VEZ, registrada en notified_graduated_tokens:
       // si el token sale y vuelve a entrar al feed, no se vuelve a notificar.
+      // DISABLED: notificaciones de graduados desactivadas
+      /*
       if (firstRefreshDone && newTokens.length > 0) {
         const alreadyNotified = getNotifiedGraduatedAddresses(newTokens.map((t) => t.address));
         const pending = newTokens.filter((t) => !alreadyNotified.has(t.address));
@@ -701,6 +808,7 @@ async function main() {
           await notifyGraduatedToken(t);
         }
       }
+      */
 
       // Guardar tokens en la base de datos (idempotente, INSERT OR REPLACE)
       saveGraduatedTokens(enriched);

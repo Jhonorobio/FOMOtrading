@@ -47,6 +47,15 @@ function normalizeTelemetryItem(item, address) {
 
   const symbol = item.symbol || address.slice(0, 6).toUpperCase();
 
+  // Creation timestamp (nanoseconds -> ISO string)
+  // Primary: created (token creation), Fallback: has_graduated_timestamp
+  let createdAt = null;
+  const createdTs = item.created || item.has_graduated_timestamp;
+  if (createdTs) {
+    const ms = Number(createdTs) > 1e15 ? Math.floor(Number(createdTs) / 1e6) : Number(createdTs);
+    if (Number.isFinite(ms) && ms > 0) createdAt = new Date(ms).toISOString();
+  }
+
   return {
     assetId: item.mint || `solana:${address}`,
     chainId: 'solana',
@@ -58,6 +67,8 @@ function normalizeTelemetryItem(item, address) {
     liquidityUsd: Number(item.liquidity_usd ?? 0) || null,
     marketCapUsd: Number(item.market_cap_usd ?? 0) || null,
     change24hPct: null,
+    createdAt,
+    hasGraduated: item.has_graduated ?? null,
     source: 'telemetry',
     fetchedAt: new Date().toISOString(),
   };
@@ -100,8 +111,8 @@ export async function fetchQuote(chainId, address) {
       if (err.message.includes('TELEMETRY_ERROR:401') || err.message.includes('TELEMETRY_ERROR:403')) {
         // Check if it's a refresh token issue (not a data access token issue)
         if (err.message.includes('TELEMETRY refresh failed') || err.message === 'TELEMETRY_ERROR:401') {
-          // Refresh token is invalid/expired - don't retry, throw clear error
-          console.error('[market-data] Refresh token invalid. Use POST /api/market/telemetry/token to set a new access token.');
+          // Refresh/access token is invalid or expired - don't retry, throw clear error
+          console.error('[market-data] Access token expired or invalid. Get a new token from app.telemetry.io and set via POST /api/market/telemetry/token or TELEMETRY_ACCESS_TOKEN env var.');
           throw new Error('TELEMETRY_AUTH_INVALID');
         }
         invalidateAccessToken();
@@ -136,7 +147,7 @@ export async function fetchQuotesBatch(addresses) {
       }
       if (err.message.includes('TELEMETRY_ERROR:401') || err.message.includes('TELEMETRY_ERROR:403')) {
         if (err.message.includes('TELEMETRY refresh failed') || err.message === 'TELEMETRY_ERROR:401') {
-          console.error('[market-data] Refresh token invalid. Use POST /api/market/telemetry/token to set a new access token.');
+          console.error('[market-data] Access token expired or invalid. Get a new token from app.telemetry.io.');
           return {};
         }
         invalidateAccessToken();
@@ -176,7 +187,7 @@ export async function fetchTokenLogo(address) {
       lastErr = err;
       if (err.message.includes('TELEMETRY_ERROR:401') || err.message.includes('TELEMETRY_ERROR:403')) {
         if (err.message.includes('TELEMETRY refresh failed') || err.message === 'TELEMETRY_ERROR:401') {
-          console.error('[market-data] Refresh token invalid. Use POST /api/market/telemetry/token to set a new access token.');
+          console.error('[market-data] Access token expired or invalid. Get a new token from app.telemetry.io.');
           return {};
         }
         invalidateAccessToken();

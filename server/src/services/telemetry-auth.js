@@ -35,22 +35,29 @@ function decodeExp(jwt) {
 
 /** Parse Set-Cookie header(s) into a cookie map. */
 function parseSetCookie(setCookieHeader) {
-  if (!setCookieHeader) return {};
   const cookies = {};
-  const raw = Array.isArray(setCookieHeader) ? setCookieHeader.join(', ') : setCookieHeader;
-  const parts = raw.split(/,\s(?=[^=]+=)/);
-  for (const part of parts) {
-    const eq = part.indexOf('=');
+  if (!setCookieHeader) return cookies;
+
+  // If it's an array (from getSetCookie()), process each entry
+  const entries = Array.isArray(setCookieHeader)
+    ? setCookieHeader
+    : [setCookieHeader];
+
+  for (const entry of entries) {
+    const eq = entry.indexOf('=');
     if (eq === -1) continue;
-    const name = part.slice(0, eq).trim();
-    const value = part.slice(eq + 1).split(';')[0].trim();
+    const name = entry.slice(0, eq).trim();
+    const value = entry.slice(eq + 1).split(';')[0].trim();
     cookies[name] = value;
   }
   return cookies;
 }
 
-/** Refresh token from env or local data file. */
+/** Refresh token from env or local data file.
+ *  After the first successful refresh, the rotated token (stored in memory/file)
+ *  takes precedence over the (possibly stale) env var. */
 export function getRefreshToken() {
+  if (refreshToken) return refreshToken;
   return process.env.TELEMETRY_REFRESH_TOKEN || store.get('refresh_token') || null;
 }
 
@@ -117,8 +124,10 @@ export function getAccessToken({ force = false } = {}) {
         throw new Error(`TELEMETRY refresh failed: HTTP ${res.status}`);
       }
 
-      const setCookie = res.headers.get('set-cookie') || res.headers.get('Set-Cookie');
-      const cookies = parseSetCookie(setCookie);
+      const setCookies = typeof res.headers.getSetCookie === 'function'
+        ? res.headers.getSetCookie()
+        : (res.headers.get('set-cookie') || res.headers.get('Set-Cookie'));
+      const cookies = parseSetCookie(setCookies);
 
       const newAccessToken = cookies['data_access_token'] || cookies['auth_token'];
       const newRefreshToken = cookies['refresh_token'];

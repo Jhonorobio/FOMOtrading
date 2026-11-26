@@ -144,6 +144,39 @@ const SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS idx_tg_messages_chat ON telegram_messages(chat_id);
   CREATE INDEX IF NOT EXISTS idx_tg_messages_date ON telegram_messages(message_date DESC);
+
+  CREATE TABLE IF NOT EXISTS telegram_detected_tokens (
+    id TEXT PRIMARY KEY,
+    message_id TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    chat_title TEXT,
+    address TEXT NOT NULL,
+    symbol TEXT,
+    name TEXT,
+    market_cap_usd REAL,
+    price_usd REAL,
+    logo TEXT,
+    axiom_callouts INTEGER DEFAULT 0,
+    axiom_callers TEXT,
+    fomo_traders INTEGER DEFAULT 0,
+    kol_traders INTEGER DEFAULT 0,
+    community_callouts INTEGER DEFAULT 0,
+    pump_traders INTEGER DEFAULT 0,
+    axiom_traders INTEGER DEFAULT 0,
+    age_minutes INTEGER,
+    created_at TEXT,
+    entry_market_cap_usd REAL,
+    highest_market_cap_usd REAL,
+    detected_at INTEGER NOT NULL,
+    UNIQUE(message_id, address)
+  );
+
+  CREATE TABLE IF NOT EXISTS notified_telegram_tokens (
+    address TEXT PRIMARY KEY,
+    notified_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_tg_detected_chat ON telegram_detected_tokens(chat_id);
+  CREATE INDEX IF NOT EXISTS idx_tg_detected_date ON telegram_detected_tokens(detected_at DESC);
 `;
 
 export async function initDb() {
@@ -185,6 +218,45 @@ function migrate() {
   // profiles ya lo define en el SCHEMA, pero por si acaso tablas preexistentes
   if (!colNames('profiles').includes('updated_at')) {
     exec('ALTER TABLE profiles ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0');
+  }
+  // telegram_detected_tokens: agregar columnas nuevas (logo, axiom_callouts, axiom_callers)
+  if (colNames('telegram_detected_tokens').length > 0) {
+    if (!colNames('telegram_detected_tokens').includes('logo')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN logo TEXT');
+    }
+    if (!colNames('telegram_detected_tokens').includes('axiom_callouts')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN axiom_callouts INTEGER DEFAULT 0');
+    }
+    if (!colNames('telegram_detected_tokens').includes('axiom_callers')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN axiom_callers TEXT');
+    }
+    if (!colNames('telegram_detected_tokens').includes('fomo_traders')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN fomo_traders INTEGER DEFAULT 0');
+    }
+    if (!colNames('telegram_detected_tokens').includes('kol_traders')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN kol_traders INTEGER DEFAULT 0');
+    }
+    if (!colNames('telegram_detected_tokens').includes('community_callouts')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN community_callouts INTEGER DEFAULT 0');
+    }
+    if (!colNames('telegram_detected_tokens').includes('pump_traders')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN pump_traders INTEGER DEFAULT 0');
+    }
+    if (!colNames('telegram_detected_tokens').includes('axiom_traders')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN axiom_traders INTEGER DEFAULT 0');
+    }
+    if (!colNames('telegram_detected_tokens').includes('age_minutes')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN age_minutes INTEGER');
+    }
+    if (!colNames('telegram_detected_tokens').includes('created_at')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN created_at TEXT');
+    }
+    if (!colNames('telegram_detected_tokens').includes('entry_market_cap_usd')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN entry_market_cap_usd REAL');
+    }
+    if (!colNames('telegram_detected_tokens').includes('highest_market_cap_usd')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN highest_market_cap_usd REAL');
+    }
   }
 }
 
@@ -430,6 +502,234 @@ export function getTelegramChats() {
 export function getTelegramMessageCount() {
   const row = get('SELECT COUNT(*) as c FROM telegram_messages');
   return row ? row.c : 0;
+}
+
+/* ---------------- telegram detected tokens ---------------- */
+
+export function saveDetectedToken(t) {
+  const d = requireDb();
+  dirty = true;
+
+  // Check if this address already exists (keep first detection, update data)
+  const existing = get('SELECT id, detected_at FROM telegram_detected_tokens WHERE address = ? ORDER BY detected_at ASC LIMIT 1', [t.address]);
+
+  if (existing) {
+    // Update existing row with fresh telemetry data, but keep original detected_at and entry_market_cap_usd
+    // Also update highest_market_cap_usd only if new value is higher (high water mark)
+    const stmt = d.prepare(
+      'UPDATE telegram_detected_tokens SET chat_id = ?, chat_title = ?, symbol = ?, name = ?, market_cap_usd = ?, price_usd = ?, logo = ?, age_minutes = ?, created_at = ?, entry_market_cap_usd = COALESCE(entry_market_cap_usd, ?), highest_market_cap_usd = CASE WHEN highest_market_cap_usd IS NULL OR ? > highest_market_cap_usd THEN ? ELSE highest_market_cap_usd END WHERE id = ?'
+    );
+    stmt.run([
+      t.chatId,
+      t.chatTitle || null,
+      t.symbol || null,
+      t.name || null,
+      t.marketCapUsd ?? null,
+      t.priceUsd ?? null,
+      t.logo || null,
+      t.ageMinutes ?? null,
+      t.createdAt || null,
+      t.marketCapUsd ?? null, // only set entry if null (first time)
+      t.marketCapUsd ?? null, // for CASE comparison
+      t.marketCapUsd ?? null, // for CASE assignment
+      existing.id,
+    ]);
+    stmt.free();
+    return;
+  }
+
+  // New token: insert
+  const stmt = d.prepare(
+    'INSERT INTO telegram_detected_tokens (id, message_id, chat_id, chat_title, address, symbol, name, market_cap_usd, price_usd, logo, axiom_callouts, axiom_callers, fomo_traders, kol_traders, community_callouts, pump_traders, axiom_traders, age_minutes, created_at, entry_market_cap_usd, highest_market_cap_usd, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+  stmt.run([
+    t.id,
+    t.messageId,
+    t.chatId,
+    t.chatTitle || null,
+    t.address,
+    t.symbol || null,
+    t.name || null,
+    t.marketCapUsd ?? null,
+    t.priceUsd ?? null,
+    t.logo || null,
+    t.axiomCallouts ?? 0,
+    t.axiomCallers ? JSON.stringify(t.axiomCallers) : null,
+    t.fomoTraders ?? 0,
+    t.kolTraders ?? 0,
+    t.communityCallouts ?? 0,
+    t.pumpTraders ?? 0,
+    t.axiomTraders ?? 0,
+    t.ageMinutes ?? null,
+    t.createdAt || null,
+    t.marketCapUsd ?? null, // entry_market_cap_usd = market cap at first detection
+    t.marketCapUsd ?? null, // highest_market_cap_usd = starts as entry
+    t.detectedAt || Date.now(),
+  ]);
+  stmt.free();
+}
+
+export function getDetectedTokens({ chatId, limit = 50, offset = 0, since } = {}) {
+  // Deduplicate by address: keep only the first (oldest) detection per token
+  let sql = 'SELECT t.* FROM telegram_detected_tokens t ' +
+    'INNER JOIN (SELECT address, MIN(detected_at) as min_date FROM telegram_detected_tokens GROUP BY address) latest ' +
+    'ON t.address = latest.address AND t.detected_at = latest.min_date ' +
+    'WHERE 1=1';
+  const params = [];
+  if (chatId) { sql += ' AND t.chat_id = ?'; params.push(chatId); }
+  if (since) { sql += ' AND t.detected_at >= ?'; params.push(since); }
+  sql += ' ORDER BY t.detected_at DESC LIMIT ? OFFSET ?';
+  params.push(limit, offset);
+  const rows = all(sql, params);
+  return rows.map((r) => ({
+    id: r.id,
+    messageId: r.message_id,
+    chatId: r.chat_id,
+    chatTitle: r.chat_title,
+    address: r.address,
+    symbol: r.symbol,
+    name: r.name,
+    marketCapUsd: r.market_cap_usd,
+    priceUsd: r.price_usd,
+    logo: r.logo,
+    entryMarketCapUsd: r.entry_market_cap_usd,
+    highestMarketCapUsd: r.highest_market_cap_usd,
+    axiomCallouts: r.axiom_callouts || 0,
+    axiomCallers: r.axiom_callers ? JSON.parse(r.axiom_callers) : null,
+    fomoTraders: r.fomo_traders || 0,
+    kolTraders: r.kol_traders || 0,
+    communityCallouts: r.community_callouts || 0,
+    pumpTraders: r.pump_traders || 0,
+    axiomTraders: r.axiom_traders || 0,
+    ageMinutes: r.age_minutes,
+    createdAt: r.created_at,
+    detectedAt: r.detected_at,
+  }));
+}
+
+export function getDetectedTokenCount() {
+  const row = get('SELECT COUNT(*) as c FROM telegram_detected_tokens');
+  return row ? row.c : 0;
+}
+
+export function updateDetectedTokenAxiom(address, callouts, callers) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('UPDATE telegram_detected_tokens SET axiom_callouts = ?, axiom_callers = ? WHERE address = ?');
+  stmt.run([callouts, callers ? JSON.stringify(callers) : null, address]);
+  stmt.free();
+}
+
+export function updateDetectedTokenFomo(address, count) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('UPDATE telegram_detected_tokens SET fomo_traders = ? WHERE address = ?');
+  stmt.run([count, address]);
+  stmt.free();
+}
+
+export function updateDetectedTokenKol(address, count) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('UPDATE telegram_detected_tokens SET kol_traders = ? WHERE address = ?');
+  stmt.run([count, address]);
+  stmt.free();
+}
+
+export function updateDetectedTokenCommunity(address, count) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('UPDATE telegram_detected_tokens SET community_callouts = ? WHERE address = ?');
+  stmt.run([count, address]);
+  stmt.free();
+}
+
+export function updateDetectedTokenPump(address, count) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('UPDATE telegram_detected_tokens SET pump_traders = ? WHERE address = ?');
+  stmt.run([count, address]);
+  stmt.free();
+}
+
+export function updateDetectedTokenAxiomTraders(address, count) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('UPDATE telegram_detected_tokens SET axiom_traders = ? WHERE address = ?');
+  stmt.run([count, address]);
+  stmt.free();
+}
+
+export function updateDetectedTokenHighestMc(address, highestMc) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('UPDATE telegram_detected_tokens SET highest_market_cap_usd = CASE WHEN highest_market_cap_usd IS NULL OR ? > highest_market_cap_usd THEN ? ELSE highest_market_cap_usd END WHERE address = ?');
+  stmt.run([highestMc, highestMc, address]);
+  stmt.free();
+}
+
+export function deleteDetectedToken(id) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('DELETE FROM telegram_detected_tokens WHERE id = ?');
+  const info = stmt.run([id]);
+  stmt.free();
+  return info.changes;
+}
+
+export function deleteDetectedTokensBelowMc(minMc) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('DELETE FROM telegram_detected_tokens WHERE market_cap_usd IS NOT NULL AND market_cap_usd < ?');
+  const info = stmt.run([minMc]);
+  stmt.free();
+  return info.changes;
+}
+
+export function deleteDetectedTokenByAddress(address) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('DELETE FROM telegram_detected_tokens WHERE address = ?');
+  const info = stmt.run([address]);
+  stmt.free();
+  return info.changes;
+}
+
+// ---------------- notified telegram tokens (dedup notifications) ----------------
+
+const TELEGRAM_NOTIFY_TTL_MS = 24 * 60 * 60 * 1000; // 1 day
+
+export function isTelegramTokenNotified(address) {
+  const row = get('SELECT notified_at FROM notified_telegram_tokens WHERE address = ?', [address]);
+  if (!row) return false;
+  // Expired? (older than 1 day)
+  if (Date.now() - row.notified_at > TELEGRAM_NOTIFY_TTL_MS) {
+    // Remove expired entry so it can be re-notified
+    const d = requireDb();
+    const stmt = d.prepare('DELETE FROM notified_telegram_tokens WHERE address = ?');
+    stmt.run([address]);
+    stmt.free();
+    dirty = true;
+    return false;
+  }
+  return true;
+}
+
+export function markTelegramTokenNotified(address) {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('INSERT OR REPLACE INTO notified_telegram_tokens (address, notified_at) VALUES (?, ?)');
+  stmt.run([address, Date.now()]);
+  stmt.free();
+}
+
+export function clearDetectedTokens() {
+  const d = requireDb();
+  dirty = true;
+  const stmt = d.prepare('DELETE FROM telegram_detected_tokens');
+  const info = stmt.run();
+  stmt.free();
+  return info.changes;
 }
 
 /** Persiste la DB de inmediato (evita perder marcas de notificados entre ticks de 30s). */

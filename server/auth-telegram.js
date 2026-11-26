@@ -2,19 +2,36 @@
  * Standalone Telegram authentication script.
  *
  * Usage:
- *   1. Set env vars: TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_PHONE
+ *   1. Set env vars: TELEGRAM_API_ID, TELEGRAM_API_HASH (or in .env)
  *   2. Run: node auth-telegram.js
- *   3. Enter the code you receive in Telegram
+ *   3. Enter your phone number, the code you receive, and 2FA password if needed
  *   4. Copy the session string printed at the end
  *   5. Set TELEGRAM_SESSION=<string> in your .env or Railway env vars
- *
- * The session is also saved to data/telegram-session.txt automatically.
  */
 import { TelegramClient } from 'teleproto';
 import { StringSession } from 'teleproto/sessions';
 import { createInterface } from 'node:readline';
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+
+// Load .env file
+try {
+  const { readFileSync } = await import('node:fs');
+  const envPath = join(process.cwd(), '.env');
+  const text = readFileSync(envPath, 'utf8');
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (!(key in process.env)) process.env[key] = value;
+  }
+} catch {}
 
 const DATA_DIR = join(process.cwd(), 'data');
 
@@ -31,16 +48,20 @@ function ask(question) {
 async function main() {
   const apiId = Number(process.env.TELEGRAM_API_ID);
   const apiHash = process.env.TELEGRAM_API_HASH;
-  const phone = process.env.TELEGRAM_PHONE;
 
   if (!apiId || !apiHash) {
     console.error('ERROR: Set TELEGRAM_API_ID and TELEGRAM_API_HASH env vars first.');
     console.error('Get them from https://my.telegram.org -> API development tools');
     process.exit(1);
   }
+
+  let phone = process.env.TELEGRAM_PHONE;
   if (!phone) {
-    console.error('ERROR: Set TELEGRAM_PHONE env var (with country code, e.g. +54911...)');
-    process.exit(1);
+    phone = await ask('Enter your phone number (with country code, e.g. +573107424776): ');
+    if (!phone) {
+      console.error('ERROR: Phone number is required.');
+      process.exit(1);
+    }
   }
 
   console.log('Connecting to Telegram...');
@@ -60,13 +81,28 @@ async function main() {
   }
 
   console.log('Sending code to', phone, '...');
-  await client.sendCode({ apiId, apiHash }, phone);
-
-  const code = await ask('Enter the code you received: ');
-  const password = process.env.TELEGRAM_2FA_PASSWORD || (await ask('Enter 2FA password (or leave empty): '));
-
   try {
-    await client.signIn({ apiId, apiHash }, phone, code, async () => password);
+    const user = await client.signInUser(
+      { apiId, apiHash },
+      {
+        phoneNumber: phone,
+        phoneCode: async () => {
+          console.log('Code sent! Check your Telegram app or SMS.');
+          return await ask('Enter the code you received: ');
+        },
+        password: async () => {
+          const pwd = process.env.TELEGRAM_2FA_PASSWORD;
+          if (pwd) return pwd;
+          const input = await ask('Enter 2FA password (or leave empty): ');
+          return input || '';
+        },
+        onError: async (err) => {
+          console.error('Auth error:', err.message);
+          return false; // don't retry
+        },
+      }
+    );
+    console.log('Signed in as:', user?.firstName || user?.username || 'OK');
   } catch (err) {
     console.error('Sign in failed:', err.message);
     await client.disconnect();
@@ -79,11 +115,11 @@ async function main() {
   console.log(sessionStr);
   console.log('========================================\n');
   console.log('Save this as TELEGRAM_SESSION in your .env or Railway env vars.');
-  console.log('Also saved to data/telegram-session.txt');
 
   // Save to file
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
   writeFileSync(join(DATA_DIR, 'telegram-session.txt'), sessionStr, 'utf8');
+  console.log('Also saved to data/telegram-session.txt');
 
   await client.disconnect();
   process.exit(0);

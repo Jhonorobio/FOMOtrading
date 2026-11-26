@@ -41,12 +41,13 @@ export function hydrateLogo(chainId, address, onReady) {
   list.add(onReady);
 }
 
-export default function Avatar({ symbol, chainId, address, size = 38 }) {
+export default function Avatar({ symbol, chainId, address, size = 38, imageUrl }) {
   const key = `${chainId}:${address}`;
   const [fetched, setFetched] = useState(null);
-  const logo = logos.get(key) || fetched;
+  const logo = imageUrl || logos.get(key) || fetched;
 
   useEffect(() => {
+    if (imageUrl) return; // skip fetch if external URL provided
     let alive = true;
     const apply = (url) => {
       if (alive && url) setFetched(url);
@@ -56,7 +57,7 @@ export default function Avatar({ symbol, chainId, address, size = 38 }) {
     return () => {
       alive = false;
     };
-  }, [chainId, address]);
+  }, [chainId, address, imageUrl]);
 
   const letter = (symbol || '?').replace(/^\$/, '').toUpperCase().slice(0, 1);
 

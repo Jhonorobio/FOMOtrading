@@ -424,11 +424,9 @@ async function fetchGradsColumn() {
 /* ---------------- the tick ---------------- */
 
 function tickStartFlush() {
-  const entries = [...notifiedRetries.entries()];
-  return Promise.all(entries.map(([addr, entry]) => {
-    notifiedRetries.delete(addr);
-    return notifyGraduatesToken(entry.token, entry.attempts);
-  }));
+  // DISABLED: notificaciones de graduados desactivadas
+  notifiedRetries.clear();
+  return Promise.resolve();
 }
 
 async function gradsTick() {
@@ -455,7 +453,8 @@ async function gradsTick() {
         if (!firstFetchDone) {
           markNotified(t); // seed: everything already in the column on boot is "not notified" — no storm
         } else if (config.enabled !== false && !wasNotified(address)) {
-          await notifyGraduatesToken(t);
+          // DISABLED: notificaciones de graduados desactivadas
+          // await notifyGraduatesToken(t);
         }
       } else {
         // identity backfill + live metrics refresh (cheap, in memory only)
