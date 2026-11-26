@@ -435,9 +435,9 @@ async function fetchTokenInfo(address, messageRecord) {
     const pumpTraders = pumpRes?.count || 0;
     const axiomTraders = axiomTradersRes?.count || 0;
 
-    // Reject if ALL filters are 0 (no activity)
-    if (axiomCallouts === 0 && fomoTraders === 0 && kolTraders === 0 && communityCallouts === 0 && pumpTraders === 0 && axiomTraders === 0) {
-      console.log(`[telegram-client] Rejected ${quote.symbol || address.slice(0, 8)}: all filters are 0 (no activity)`);
+    // Reject if no Axiom activity (need at least 1 Axiom callout or Axiom trader)
+    if (axiomCallouts === 0 && axiomTraders === 0) {
+      console.log(`[telegram-client] Rejected ${quote.symbol || address.slice(0, 8)}: no Axiom callouts or Axiom traders`);
       return;
     }
 
@@ -504,9 +504,9 @@ async function fetchTokenInfo(address, messageRecord) {
     const pumpTraders = pumpRes?.count || 0;
     const axiomTraders = axiomTradersRes?.count || 0;
 
-    // Reject if ALL filters are 0 (no activity)
-    if (axiomCallouts === 0 && fomoTraders === 0 && kolTraders === 0 && communityCallouts === 0 && pumpTraders === 0 && axiomTraders === 0) {
-      console.log(`[telegram-client] Rejected ${address.slice(0, 8)}: all filters are 0 (no telemetry)`);
+    // Reject if no Axiom activity (need at least 1 Axiom callout or Axiom trader)
+    if (axiomCallouts === 0 && axiomTraders === 0) {
+      console.log(`[telegram-client] Rejected ${address.slice(0, 8)}: no Axiom callouts or Axiom traders (no telemetry)`);
       return;
     }
 
