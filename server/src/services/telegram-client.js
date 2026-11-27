@@ -451,6 +451,7 @@ async function fetchTokenInfo(address, messageRecord) {
       name: quote.name || null,
       marketCapUsd: quote.marketCapUsd || null,
       priceUsd: quote.priceUsd || null,
+      volume24hUsd: quote.volume24hUsd || null,
       logo: quote.imageUrl || null,
       ageMinutes,
       createdAt: quote.createdAt || null,
@@ -521,6 +522,7 @@ async function fetchTokenInfo(address, messageRecord) {
       name: null,
       marketCapUsd: null,
       priceUsd: null,
+      volume24hUsd: null,
       logo: null,
       ageMinutes,
       createdAt: null,
@@ -557,6 +559,7 @@ async function sendDetectedTokenNotification(t) {
   const name = t.name || '';
   const mc = t.marketCapUsd ? formatMarketCap(t.marketCapUsd) : '—';
   const price = t.priceUsd ? `$${Number(t.priceUsd).toFixed(6)}` : '—';
+  const vol = t.volume24hUsd ? formatMarketCap(t.volume24hUsd) : '—';
   const age = t.ageMinutes != null ? `${t.ageMinutes}m` : '—';
   const axiom = t.axiomCallouts || 0;
   const fomo = t.fomoTraders || 0;
@@ -578,7 +581,7 @@ async function sendDetectedTokenNotification(t) {
     `Symbol: ${symbol}\n` +
     (name ? `Name: ${name}\n` : '') +
     `Address: <code>${t.address}</code>\n` +
-    `MK: ${mc} | Price: ${price} | Age: ${age}\n` +
+    `MK: ${mc} | Price: ${price} | Vol24h: ${vol} | Age: ${age}\n` +
     (filters.length > 0 ? filters.join(' | ') + '\n' : '') +
     `<a href="https://fomo.family/tokens/solana/${t.address}">FOMO</a> | ` +
     `<a href="https://gmgn.ai/sol/token/${t.address}">GMGN</a> | ` +

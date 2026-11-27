@@ -66,6 +66,7 @@ function normalizeTelemetryItem(item, address) {
     priceUsd,
     liquidityUsd: Number(item.liquidity_usd ?? 0) || null,
     marketCapUsd: Number(item.market_cap_usd ?? 0) || null,
+    volume24hUsd: Number(item.volume_24h_usd ?? 0) || null,
     change24hPct: null,
     createdAt,
     hasGraduated: item.has_graduated ?? null,

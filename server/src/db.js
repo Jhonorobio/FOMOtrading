@@ -155,6 +155,7 @@ const SCHEMA = `
     name TEXT,
     market_cap_usd REAL,
     price_usd REAL,
+    volume_24h_usd REAL,
     logo TEXT,
     axiom_callouts INTEGER DEFAULT 0,
     axiom_callers TEXT,
@@ -250,6 +251,9 @@ function migrate() {
     }
     if (!colNames('telegram_detected_tokens').includes('created_at')) {
       exec('ALTER TABLE telegram_detected_tokens ADD COLUMN created_at TEXT');
+    }
+    if (!colNames('telegram_detected_tokens').includes('volume_24h_usd')) {
+      exec('ALTER TABLE telegram_detected_tokens ADD COLUMN volume_24h_usd REAL');
     }
     if (!colNames('telegram_detected_tokens').includes('entry_market_cap_usd')) {
       exec('ALTER TABLE telegram_detected_tokens ADD COLUMN entry_market_cap_usd REAL');
@@ -517,7 +521,7 @@ export function saveDetectedToken(t) {
     // Update existing row with fresh telemetry data, but keep original detected_at and entry_market_cap_usd
     // Also update highest_market_cap_usd only if new value is higher (high water mark)
     const stmt = d.prepare(
-      'UPDATE telegram_detected_tokens SET chat_id = ?, chat_title = ?, symbol = ?, name = ?, market_cap_usd = ?, price_usd = ?, logo = ?, age_minutes = ?, created_at = ?, entry_market_cap_usd = COALESCE(entry_market_cap_usd, ?), highest_market_cap_usd = CASE WHEN highest_market_cap_usd IS NULL OR ? > highest_market_cap_usd THEN ? ELSE highest_market_cap_usd END WHERE id = ?'
+      'UPDATE telegram_detected_tokens SET chat_id = ?, chat_title = ?, symbol = ?, name = ?, market_cap_usd = ?, price_usd = ?, volume_24h_usd = ?, logo = ?, age_minutes = ?, created_at = ?, entry_market_cap_usd = COALESCE(entry_market_cap_usd, ?), highest_market_cap_usd = CASE WHEN highest_market_cap_usd IS NULL OR ? > highest_market_cap_usd THEN ? ELSE highest_market_cap_usd END WHERE id = ?'
     );
     stmt.run([
       t.chatId,
@@ -526,6 +530,7 @@ export function saveDetectedToken(t) {
       t.name || null,
       t.marketCapUsd ?? null,
       t.priceUsd ?? null,
+      t.volume24hUsd ?? null,
       t.logo || null,
       t.ageMinutes ?? null,
       t.createdAt || null,
@@ -540,7 +545,7 @@ export function saveDetectedToken(t) {
 
   // New token: insert
   const stmt = d.prepare(
-    'INSERT INTO telegram_detected_tokens (id, message_id, chat_id, chat_title, address, symbol, name, market_cap_usd, price_usd, logo, axiom_callouts, axiom_callers, fomo_traders, kol_traders, community_callouts, pump_traders, axiom_traders, age_minutes, created_at, entry_market_cap_usd, highest_market_cap_usd, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO telegram_detected_tokens (id, message_id, chat_id, chat_title, address, symbol, name, market_cap_usd, price_usd, volume_24h_usd, logo, axiom_callouts, axiom_callers, fomo_traders, kol_traders, community_callouts, pump_traders, axiom_traders, age_minutes, created_at, entry_market_cap_usd, highest_market_cap_usd, detected_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   );
   stmt.run([
     t.id,
@@ -552,6 +557,7 @@ export function saveDetectedToken(t) {
     t.name || null,
     t.marketCapUsd ?? null,
     t.priceUsd ?? null,
+    t.volume24hUsd ?? null,
     t.logo || null,
     t.axiomCallouts ?? 0,
     t.axiomCallers ? JSON.stringify(t.axiomCallers) : null,
@@ -591,6 +597,7 @@ export function getDetectedTokens({ chatId, limit = 50, offset = 0, since } = {}
     name: r.name,
     marketCapUsd: r.market_cap_usd,
     priceUsd: r.price_usd,
+    volume24hUsd: r.volume_24h_usd,
     logo: r.logo,
     entryMarketCapUsd: r.entry_market_cap_usd,
     highestMarketCapUsd: r.highest_market_cap_usd,

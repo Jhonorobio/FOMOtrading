@@ -338,6 +338,7 @@ app.get('/api/telegram/detected-tokens', async (req, res, next) => {
         ...t,
         priceUsd: q?.priceUsd ?? t.priceUsd ?? null,
         marketCapUsd: liveMc,
+        volume24hUsd: q?.volume24hUsd ?? t.volume24hUsd ?? null,
         entryMarketCapUsd: entryMc,
         highestMarketCapUsd: highestMc,
         mcChangePct,
